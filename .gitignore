@@ -13,6 +13,14 @@ dist-ssr
 client/node_modules
 client/dist
 client/dist-ssr
+
+# Django / server
+server/.venv
+server/*.sqlite3
+server/.env
+server/__pycache__
+server/**/__pycache__
+server/**/*.pyc
 *.local
 
 # Editor directories and files
