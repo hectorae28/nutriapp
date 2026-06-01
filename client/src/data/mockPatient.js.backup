@@ -1,0 +1,208 @@
+export const mockPatient = {
+  id: 'P-001',
+  name: 'María González',
+  age: 34,
+  gender: 'Femenino',
+  dob: '1990-05-14',
+  phone: '+58 412-555-0192',
+  email: 'maria.gonzalez@email.com',
+  address: 'Av. Principal, Caracas, Venezuela',
+  occupation: 'Docente',
+  consultDate: '2024-01-15',
+  nutritionist: 'Lic. Ana Rodríguez',
+
+  // Anthropometric data
+  anthropometry: {
+    height: 162, // cm
+    currentWeight: 74.5, // kg
+    idealWeight: 62.0,
+    bmi: 28.4,
+    bmiCategory: 'Sobrepeso',
+    waistCircumference: 84, // cm
+    hipCircumference: 98,
+    waistHipRatio: 0.86,
+    bodyFat: 31.2, // %
+    muscleMass: 44.1, // kg
+  },
+
+  // Dietary history / nutritional evaluation
+  dietaryHistory: {
+    mainComplaint: 'Pérdida de peso y mejora de niveles de glucosa',
+    previousDiets: ['Dieta hipocalórica (2022)', 'Ayuno intermitente (2023)'],
+    allergies: ['Ninguna conocida'],
+    intolerances: ['Lactosa (leve)'],
+    foodPreferences: ['Pollo', 'Frutas tropicales', 'Vegetales verdes'],
+    foodAversions: ['Hígado', 'Mariscos'],
+    waterIntake: '4-6 vasos/día',
+    mealFrequency: '3 comidas principales, 1-2 meriendas',
+    cookingMethod: 'Cocina en casa la mayoría de los días',
+    physicalActivity: 'Caminata 30 min, 3 veces/semana',
+    sleepHours: 6,
+    stressLevel: 'Moderado',
+    alcoholConsumption: 'Ocasional (fines de semana)',
+    smoking: false,
+  },
+
+  // Nutritional evaluation
+  nutritionalEvaluation: {
+    diagnosis: 'Sobrepeso con resistencia a la insulina',
+    energyNeeds: 1850, // kcal/day
+    proteinNeeds: 74, // g/day
+    carbNeeds: 231, // g/day
+    fatNeeds: 62, // g/day
+    fiberNeeds: 25, // g/day
+    plan: 'Plan de alimentación hipocalórico con sistema de intercambio, énfasis en índice glucémico bajo',
+    objectives: [
+      'Reducir peso 0.5 kg/semana',
+      'Normalizar glucosa en ayunas',
+      'Mejorar hábitos alimentarios',
+      'Aumentar actividad física',
+    ],
+    notes: 'Paciente motivada. Seguimiento quincenal. Control de glucosa mensual.',
+  },
+
+  // Labs
+  labs: {
+    date: '2024-01-10',
+    glucose: 106, // mg/dL
+    hba1c: 5.9, // %
+    cholesterol: 198,
+    ldl: 118,
+    hdl: 52,
+    triglycerides: 142,
+    insulin: 14.2,
+  },
+
+  // Weight evolution (weekly)
+  weightHistory: [
+    { date: '2024-01-15', weight: 78.2, label: 'Semana 1' },
+    { date: '2024-01-22', weight: 77.6, label: 'Semana 2' },
+    { date: '2024-01-29', weight: 77.0, label: 'Semana 3' },
+    { date: '2024-02-05', weight: 76.5, label: 'Semana 4' },
+    { date: '2024-02-12', weight: 76.1, label: 'Semana 5' },
+    { date: '2024-02-19', weight: 75.8, label: 'Semana 6' },
+    { date: '2024-02-26', weight: 75.4, label: 'Semana 7' },
+    { date: '2024-03-04', weight: 75.0, label: 'Semana 8' },
+    { date: '2024-03-11', weight: 74.8, label: 'Semana 9' },
+    { date: '2024-03-18', weight: 74.5, label: 'Semana 10' },
+  ],
+
+  // Weekly food reports
+  weeklyReports: [
+    {
+      week: '18 Mar – 24 Mar 2024',
+      adherence: 85,
+      meals: [
+        {
+          day: 'Lunes',
+          items: [
+            { meal: 'Desayuno', foods: ['Leche descremada', 'Arepa asada', 'Aguacate', 'Naranja'] },
+            {
+              meal: 'Almuerzo',
+              foods: ['Pechuga a la plancha', 'Arroz cocido', 'Ensalada mixta', 'Aceite de oliva'],
+            },
+            { meal: 'Cena', foods: ['Huevo revuelto', 'Pasta cocida', 'Tomate', 'Vainitas'] },
+          ],
+        },
+        {
+          day: 'Martes',
+          items: [
+            { meal: 'Desayuno', foods: ['Yogur descremado', 'Avena en hojuelas', 'Fresa'] },
+            {
+              meal: 'Almuerzo',
+              foods: ['Filete de pescado', 'Quinoa cocida', 'Brócoli', 'Aceitunas'],
+            },
+            {
+              meal: 'Cena',
+              foods: ['Pollo desmechado', 'Arroz cocido', 'Zanahoria', 'Aceite de maíz'],
+            },
+          ],
+        },
+        {
+          day: 'Miércoles',
+          items: [
+            {
+              meal: 'Desayuno',
+              foods: ['Leche deslactosada', 'Pan sándwich ligero', 'Queso blanco'],
+            },
+            {
+              meal: 'Almuerzo',
+              foods: ['Carne molida', 'Papa cocida', 'Espinaca', 'Vinagreta ligera'],
+            },
+            { meal: 'Cena', foods: ['Claras de huevo', 'Hallaquita', 'Pepino', 'Aceite de oliva'] },
+          ],
+        },
+        {
+          day: 'Jueves',
+          items: [
+            { meal: 'Desayuno', foods: ['Yogur de coco', 'Cereal integral', 'Cambur'] },
+            { meal: 'Almuerzo', foods: ['Pechuga horneada', 'Lentejas', 'Lechuga', 'Mostaza'] },
+            { meal: 'Cena', foods: ['Mozzarella', 'Pasta cocida', 'Berenjena', 'Aceite de oliva'] },
+          ],
+        },
+        {
+          day: 'Viernes',
+          items: [
+            { meal: 'Desayuno', foods: ['Leche de soya', 'Arepa asada', 'Queso ricota'] },
+            {
+              meal: 'Almuerzo',
+              foods: ['Camarón', 'Arroz cocido', 'Pimentón', 'Aceite de girasol'],
+            },
+            { meal: 'Cena', foods: ['Pollo entero', 'Batata', 'Apio España', 'Aguacate'] },
+          ],
+        },
+        {
+          day: 'Sábado',
+          items: [
+            { meal: 'Desayuno', foods: ['Leche completa', 'Panqueca', 'Frambuesa'] },
+            { meal: 'Almuerzo', foods: ['Medallón de res', 'Quinoa', 'Ají', 'Aceite de oliva'] },
+            { meal: 'Cena', foods: ['Huevo entero', 'Pan sándwich', 'Tomate', 'Mayonesa ligera'] },
+          ],
+        },
+        {
+          day: 'Domingo',
+          items: [
+            { meal: 'Desayuno', foods: ['Yogur entero', 'Galletas integrales', 'Mango'] },
+            {
+              meal: 'Almuerzo',
+              foods: ['Pavo desmechado', 'Arroz cocido', 'Brócoli', 'Aceite de maíz'],
+            },
+            { meal: 'Cena', foods: ['Queso blanco', 'Arepa asada', 'Lechuga', 'Aceite de oliva'] },
+          ],
+        },
+      ],
+      notes:
+        'Buena adherencia general. Omitió meriendas miércoles y viernes. Aumentó actividad física.',
+    },
+    {
+      week: '11 Mar – 17 Mar 2024',
+      adherence: 71,
+      meals: [
+        {
+          day: 'Lunes',
+          items: [
+            { meal: 'Desayuno', foods: ['Leche descremada', 'Arepa asada', 'Naranja'] },
+            { meal: 'Almuerzo', foods: ['Pechuga a la plancha', 'Arroz cocido', 'Ensalada'] },
+            { meal: 'Cena', foods: ['Huevo revuelto', 'Pan', 'Tomate'] },
+          ],
+        },
+        {
+          day: 'Martes',
+          items: [
+            { meal: 'Desayuno', foods: ['Yogur', 'Avena', 'Fresa'] },
+            { meal: 'Almuerzo', foods: ['Filete pescado', 'Quinoa', 'Vegetales'] },
+          ],
+        },
+        {
+          day: 'Miércoles',
+          items: [
+            { meal: 'Desayuno', foods: ['Leche', 'Pan', 'Queso blanco'] },
+            { meal: 'Almuerzo', foods: ['Carne', 'Papa', 'Ensalada'] },
+            { meal: 'Cena', foods: ['Huevos', 'Arepa', 'Pepino'] },
+          ],
+        },
+      ],
+      notes: 'Semana con eventos sociales. Dificultad para mantener plan los fines de semana.',
+    },
+  ],
+};

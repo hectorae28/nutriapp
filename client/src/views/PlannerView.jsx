@@ -1,521 +1,470 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from 'react';
 import {
-  Calendar,
-  Check,
-  Leaf,
-  Target,
-  Clock,
+  Plus,
   Trash2,
   Pencil,
-  Plus,
-  Minus,
+  Check,
   X,
   Search,
   ChevronDown,
-  ChevronRight,
-  ClipboardList,
-} from "lucide-react";
-import TopHeader from "../components/TopHeader";
-import {
-  StatCard,
-  Badge,
-  ProgressRing,
-  EmptyState,
-} from "../components/SharedComponents";
-import { LIST_META, FOOD_LISTS, DEFAULT_MEALS } from "../data/nutriData";
+  Clock,
+  Utensils,
+  Flame,
+  BarChart2,
+} from 'lucide-react';
+import TopHeader from '../components/TopHeader';
+import { EmptyState } from '../components/SharedComponents';
+import { planesApi } from '../api/planes';
+import { catalogoApi } from '../api/catalogo';
+import { createGrupoStyleMap, getGrupoStyle } from '../constants/grupoStyles';
 
 let _nextMealId = 100;
 
+// ─── helpers ─────────────────────────────────────────────────────────────────
+
+function totalKcalMeal(meal, selections, grupos) {
+  return Object.entries(selections[meal.id] || {}).reduce((sum, [listId, items]) => {
+    const grupo = grupos.find(g => g.id === listId);
+    return sum + items.length * (grupo?.kcal_racion || 0);
+  }, 0);
+}
+
+function totalSelections(selections) {
+  return Object.values(selections).reduce(
+    (a, bl) => a + Object.values(bl).reduce((b, arr) => b + arr.length, 0),
+    0
+  );
+}
+
+// ─── component ───────────────────────────────────────────────────────────────
+
 export default function PlannerView() {
-  const [meals, setMeals] = useState(DEFAULT_MEALS);
+  const [grupos, setGrupos] = useState([]);
+  const [alimentos, setAlimentos] = useState([]);
+  const [meals, setMeals] = useState([]);
   const [selections, setSelections] = useState({});
-  const [modalState, setModalState] = useState(null);
-  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [modalState, setModalState] = useState(null); // { meal, slotListId }
+  const [planActivo, setPlanActivo] = useState(null);
+  const [planLoading, setPlanLoading] = useState(true);
+  
+  const LIST_META = useMemo(() => {
+    const meta = {};
+    grupos.forEach(g => {
+      const style = getGrupoStyle(g.nombre, g.id - 1);
+      meta[g.id] = {
+        name: g.nombre,
+        icon: g.icon || style.icon,
+        color: style.color,
+        light: style.light,
+        dark: style.dark,
+        kcalRacion: g.kcal_racion || 0,
+      };
+    });
+    return meta;
+  }, [grupos]);
+  
+  const FOOD_LISTS = useMemo(() => {
+    return grupos.map(g => ({
+      id: g.id,
+      name: g.nombre,
+      icon: g.icon || '🍽️',
+      subcategories: [],
+    }));
+  }, [grupos]);
+
+  useEffect(() => {
+    Promise.all([
+      planesApi.miPlanActivo().catch(() => null),
+      catalogoApi.grupos().catch(() => []),
+      catalogoApi.alimentos().catch(() => []),
+    ]).then(([plan, gruposData, alimentosData]) => {
+      if (Array.isArray(plan) && plan.length > 0) setPlanActivo(plan[0]);
+      else if (plan && plan.id) setPlanActivo(plan);
+      
+      const gruposArr = Array.isArray(gruposData) ? gruposData : [];
+      setGrupos(gruposArr);
+      setAlimentos(Array.isArray(alimentosData) ? alimentosData : []);
+      
+      // Initialize DEFAULT_MEALS from grupos
+      if (gruposArr.length > 0 && meals.length === 0) {
+        const defaultMeals = [
+          {
+            id: 1,
+            name: 'Desayuno',
+            time: '7:00',
+            slots: [{ listId: gruposArr[0]?.id || 1, targetRations: 2 }],
+          },
+        ];
+        setMeals(defaultMeals);
+      }
+      
+      setPlanLoading(false);
+    });
+  }, []);
 
   const addMeal = () => {
     const id = _nextMealId++;
+    const firstGrupoId = grupos.length > 0 ? grupos[0].id : 1;
     setMeals((prev) => [
       ...prev,
-      {
-        id,
-        name: `Comida ${prev.length + 1}`,
-        time: "12:00 PM",
-        slots: [{ listId: 1, targetRations: 1 }],
-      },
+      { id, name: `Comida ${prev.length + 1}`, time: '12:00', slots: [{ listId: firstGrupoId, targetRations: 1 }] },
     ]);
   };
+
   const removeMeal = (id) => {
     setMeals((prev) => prev.filter((m) => m.id !== id));
-    setSelections((prev) => {
-      const n = { ...prev };
-      delete n[id];
-      return n;
-    });
+    setSelections((prev) => { const n = { ...prev }; delete n[id]; return n; });
   };
-  const updateMeal = (u) =>
-    setMeals((prev) => prev.map((m) => (m.id === u.id ? u : m)));
-  const addItem = (mealId, listId, item) => {
-    setSelections((prev) => ({
-      ...prev,
-      [mealId]: {
-        ...(prev[mealId] || {}),
-        [listId]: [...(prev[mealId]?.[listId] || []), item],
-      },
-    }));
-  };
-  const removeItem = (mealId, listId, idx) => {
-    setSelections((prev) => ({
-      ...prev,
-      [mealId]: {
-        ...(prev[mealId] || {}),
-        [listId]: (prev[mealId]?.[listId] || []).filter((_, i) => i !== idx),
-      },
-    }));
-  };
-  const clearAll = () => setSelections({});
 
-  const totalItems = Object.values(selections).reduce(
-    (a, bl) => a + Object.values(bl).reduce((b, arr) => b + arr.length, 0),
-    0,
-  );
-  const totalTarget = meals.reduce(
-    (a, m) => a + m.slots.reduce((b, s) => b + s.targetRations, 0),
-    0,
-  );
+  const updateMeal = (u) => setMeals((prev) => prev.map((m) => (m.id === u.id ? u : m)));
+
+  const addItem = (mealId, listId, item) =>
+    setSelections((prev) => ({
+      ...prev,
+      [mealId]: { ...(prev[mealId] || {}), [listId]: [...(prev[mealId]?.[listId] || []), item] },
+    }));
+
+  const removeItem = (mealId, listId, idx) =>
+    setSelections((prev) => ({
+      ...prev,
+      [mealId]: { ...(prev[mealId] || {}), [listId]: (prev[mealId]?.[listId] || []).filter((_, i) => i !== idx) },
+    }));
+
+  const clearMeal = (mealId) =>
+    setSelections((prev) => { const n = { ...prev }; delete n[mealId]; return n; });
+
+  const totalItems = totalSelections(selections);
   const completedMeals = meals.filter((m) =>
-    m.slots.every(
-      (s) => (selections[m.id]?.[s.listId]?.length || 0) >= s.targetRations,
-    ),
+    m.slots.every((s) => (selections[m.id]?.[s.listId]?.length || 0) >= s.targetRations)
   ).length;
+  const pctGlobal = meals.length > 0 ? Math.round((completedMeals / meals.length) * 100) : 0;
 
-  return (
-    <div className="na-planner">
-      <TopHeader
-        title="Planificador"
-        subtitle="Configura las comidas del día y asigna alimentos por grupo"
-      />
-
-      <div className="na-planner-content">
-        <div className="na-stats-row">
-          <StatCard
-            icon={Calendar}
-            label="Comidas"
-            value={meals.length}
-            color="#5B8DEF"
-          />
-          <StatCard
-            icon={Check}
-            label="Completas"
-            value={`${completedMeals}/${meals.length}`}
-            color="var(--accent-green)"
-          />
-          <StatCard
-            icon={Leaf}
-            label="Alimentos"
-            value={totalItems}
-            color="#EF6C00"
-          />
-          <StatCard
-            icon={Target}
-            label="Raciones"
-            value={`${totalItems}/${totalTarget}`}
-            color="#7E57C2"
-          />
+  // contenido reutilizable del sidebar (desktop y mobile drawer)
+  const sidebarContent = (
+    <>
+      {/* Resumen del día */}
+      <div className="npv-sidebar-card">
+        <h3 className="npv-sidebar-title"><BarChart2 size={14} /> Resumen del día</h3>
+        <div className="npv-summary-grid">
+          <div className="npv-summary-item">
+            <span className="npv-summary-val">{meals.length}</span>
+            <span className="npv-summary-lbl">comidas</span>
+          </div>
+          <div className="npv-summary-item">
+            <span className="npv-summary-val" style={{ color: 'var(--accent-green)' }}>{completedMeals}</span>
+            <span className="npv-summary-lbl">completas</span>
+          </div>
+          <div className="npv-summary-item">
+            <span className="npv-summary-val">{totalItems}</span>
+            <span className="npv-summary-lbl">alimentos</span>
+          </div>
         </div>
+        <div className="npv-global-bar">
+          <div className="npv-global-fill" style={{ width: `${pctGlobal}%` }} />
+        </div>
+        <span className="npv-global-pct">{pctGlobal}% completado</span>
+      </div>
 
-        <div className="na-meals-timeline">
-          {meals.map((meal, idx) => (
-            <MealCard
-              key={meal.id}
-              meal={meal}
-              index={idx}
-              selections={selections[meal.id] || {}}
-              onOpenModal={(m, slotListId) =>
-                setModalState({ meal: m, slotListId })
-              }
-              onRemoveMeal={removeMeal}
-              onUpdateMeal={updateMeal}
-              onRemoveItem={(mealId, listId, i) =>
-                removeItem(mealId, listId, i)
-              }
-            />
-          ))}
-
-          <button className="na-add-meal-btn" onClick={addMeal}>
-            <div className="na-add-meal-icon">
-              <Plus size={20} />
+      {/* Plan activo */}
+      {!planLoading && planActivo && (
+        <div className="npv-sidebar-card">
+          <h3 className="npv-sidebar-title"><Flame size={14} /> Plan activo</h3>
+          <div className="npv-plan-info">
+            {planActivo.tipo_dieta && <span className="npv-plan-badge">{planActivo.tipo_dieta}</span>}
+            {planActivo.kcal_objetivo && (
+              <div className="npv-plan-row"><span>Kcal objetivo</span><strong>{planActivo.kcal_objetivo} kcal</strong></div>
+            )}
+            {planActivo.proteinas_g && (
+              <div className="npv-plan-row"><span>Proteínas</span><strong>{planActivo.proteinas_g} g</strong></div>
+            )}
+            {planActivo.grasas_g && (
+              <div className="npv-plan-row"><span>Grasas</span><strong>{planActivo.grasas_g} g</strong></div>
+            )}
+            {planActivo.carbohidratos_g && (
+              <div className="npv-plan-row"><span>Carbohidratos</span><strong>{planActivo.carbohidratos_g} g</strong></div>
+            )}
+          </div>
+          {planActivo.tiempos_comida?.length > 0 && (
+            <div className="npv-tiempos">
+              <p className="npv-tiempos-title">Tiempos del plan</p>
+              {planActivo.tiempos_comida.slice().sort((a, b) => a.orden - b.orden).map((tc) => (
+                <div key={tc.id} className="npv-tc-row">
+                  <div className="npv-tc-header">
+                    <Clock size={11} />
+                    <span className="npv-tc-name">{tc.nombre}</span>
+                    {tc.hora && <span className="npv-tc-hora">{tc.hora}</span>}
+                  </div>
+                  {tc.raciones?.length > 0 && (
+                    <div className="npv-tc-raciones">
+                      {tc.raciones.map((r) => (
+                        <span key={r.id} className="npv-tc-chip">{r.cantidad} {r.grupo_nombre}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
-            <span>Agregar Comida</span>
-          </button>
+          )}
         </div>
+      )}
 
-        <div className="na-legend mb-32">
-          <span className="na-legend-label">Listas de intercambio:</span>
+      {/* Grupos de intercambio */}
+      <div className="npv-sidebar-card">
+        <h3 className="npv-sidebar-title"><Utensils size={14} /> Grupos de intercambio</h3>
+        <div className="npv-groups-list">
           {Object.entries(LIST_META).map(([id, m]) => (
-            <span
-              key={id}
-              className="na-legend-chip"
-              style={{ borderColor: m.color + "40", background: m.light }}
-            >
-              <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: m.color,
-                  display: "inline-block",
-                }}
-              ></span>
-              {m.icon} {m.name}
-            </span>
+            <div key={id} className="npv-group-row" style={{ '--gc': m.color, '--gl': m.light }}>
+              <span className="npv-group-dot" />
+              <span className="npv-group-icon">{m.icon}</span>
+              <span className="npv-group-name">{m.name}</span>
+            </div>
           ))}
         </div>
       </div>
+    </>
+  );
 
-      <DailySummaryBar
-        meals={meals}
-        selections={selections}
-        open={summaryOpen}
-        onToggle={() => setSummaryOpen(!summaryOpen)}
-        onClear={clearAll}
+  return (
+    <div className="npv-root">
+      <TopHeader
+        title="Planificador"
+        subtitle="Distribuye los grupos de alimentos por tiempo de comida"
       />
 
+      <div className="npv-body">
+        {/* ── Sidebar desktop ── */}
+        <aside className="npv-sidebar">{sidebarContent}</aside>
+
+        {/* ── Resumen mobile (solo visible en mobile, dentro del flow normal) ── */}
+        <div className="npv-mobile-bar">
+          <div className="npv-mobile-stat">
+            <span className="npv-mobile-val">{meals.length}</span>
+            <span className="npv-mobile-lbl">comidas</span>
+          </div>
+          <div className="npv-mobile-divider" />
+          <div className="npv-mobile-stat">
+            <span className="npv-mobile-val" style={{ color: 'var(--accent-green)' }}>{completedMeals}</span>
+            <span className="npv-mobile-lbl">completas</span>
+          </div>
+          <div className="npv-mobile-divider" />
+          <div className="npv-mobile-stat">
+            <span className="npv-mobile-val">{totalItems}</span>
+            <span className="npv-mobile-lbl">alimentos</span>
+          </div>
+          <div className="npv-mobile-progress">
+            <div className="npv-mobile-fill" style={{ width: `${pctGlobal}%` }} />
+          </div>
+          <span className="npv-mobile-pct">{pctGlobal}%</span>
+        </div>
+
+        {/* ── Área principal: tarjetas de comidas ── */}
+        <main className="npv-main">
+          <div className="npv-meals-grid">
+            {meals.map((meal) => (
+              <MealCard
+                key={meal.id}
+                meal={meal}
+                selections={selections[meal.id] || {}}
+                listMeta={LIST_META}
+                onOpenModal={(slotListId) => setModalState({ meal, slotListId })}
+                onRemoveMeal={removeMeal}
+                onUpdateMeal={updateMeal}
+                onRemoveItem={(listId, i) => removeItem(meal.id, listId, i)}
+                onClearMeal={() => clearMeal(meal.id)}
+              />
+            ))}
+            <button className="npv-add-meal" onClick={addMeal}>
+              <div className="npv-add-meal-inner">
+                <Plus size={22} />
+                <span>Agregar comida</span>
+              </div>
+            </button>
+          </div>
+        </main>
+      </div>
+
+      {/* Modal de selección de alimentos */}
       {modalState && (
         <FoodModal
           meal={modalState.meal}
           slotListId={modalState.slotListId}
           selectedItems={selections[modalState.meal.id] || {}}
+          listMeta={LIST_META}
+          foodLists={FOOD_LISTS}
+          alimentos={alimentos}
           onClose={() => setModalState(null)}
-          onAddItem={(listId, item) =>
-            addItem(modalState.meal.id, listId, item)
-          }
+          onAddItem={(listId, item) => addItem(modalState.meal.id, listId, item)}
         />
       )}
     </div>
   );
 }
 
-// ── Meal Card ──
-function MealCard({
-  meal,
-  index,
-  selections,
-  onOpenModal,
-  onRemoveMeal,
-  onUpdateMeal,
-  onRemoveItem,
-}) {
-  const [editing, setEditing] = useState(false);
+// ─── Meal Card ────────────────────────────────────────────────────────────────
+
+function MealCard({ meal, selections, listMeta, onOpenModal, onRemoveMeal, onUpdateMeal, onRemoveItem, onClearMeal }) {
+  const LIST_META = listMeta || {};
+  const [editingName, setEditingName] = useState(false);
   const [tmpName, setTmpName] = useState(meal.name);
+  const [expanded, setExpanded] = useState(true);
 
   const totalTarget = meal.slots.reduce((a, s) => a + s.targetRations, 0);
-  const totalSel = meal.slots.reduce(
-    (a, s) => a + (selections[s.listId]?.length || 0),
-    0,
-  );
-  const allComplete = meal.slots.every(
-    (s) => (selections[s.listId]?.length || 0) >= s.targetRations,
-  );
-  const pct = totalTarget > 0 ? Math.round((totalSel / totalTarget) * 100) : 0;
+  const totalSel = meal.slots.reduce((a, s) => a + (selections[s.listId]?.length || 0), 0);
+  const allComplete = meal.slots.every((s) => (selections[s.listId]?.length || 0) >= s.targetRations);
+  const pct = totalTarget > 0 ? Math.min(100, Math.round((totalSel / totalTarget) * 100)) : 0;
+  const hasAnyItems = Object.values(selections).some((a) => a.length > 0);
 
   const saveName = () => {
     if (tmpName.trim()) onUpdateMeal({ ...meal, name: tmpName.trim() });
-    setEditing(false);
+    setEditingName(false);
   };
 
   const addSlot = () => {
     const used = meal.slots.map((s) => s.listId);
-    const next = FOOD_LISTS.find((l) => !used.includes(l.id)) || FOOD_LISTS[0];
-    onUpdateMeal({
-      ...meal,
-      slots: [...meal.slots, { listId: next.id, targetRations: 1 }],
-    });
+    const avail = Object.keys(LIST_META).map(Number);
+    const next = avail.find((id) => !used.includes(id)) ?? avail[0];
+    onUpdateMeal({ ...meal, slots: [...meal.slots, { listId: next, targetRations: 1 }] });
   };
 
   return (
-    <div className={`na-meal-card ${allComplete ? "complete" : ""}`}>
-      <div
-        className="na-timeline-dot"
-        style={{
-          background: allComplete ? "var(--accent-green)" : "var(--border)",
-        }}
-      >
-        {allComplete ? (
-          <Check size={12} style={{ color: "#fff" }} />
-        ) : (
-          <span className="na-dot-num">{index + 1}</span>
-        )}
-      </div>
-
-      <div className="na-meal-header">
-        <div className="na-meal-title-row">
-          {editing ? (
-            <div
-              style={{ display: "flex", gap: 6, alignItems: "center", flex: 1 }}
-            >
-              <input
-                className="na-input-inline"
-                autoFocus
-                value={tmpName}
-                onChange={(e) => setTmpName(e.target.value)}
-                onBlur={saveName}
-                onKeyDown={(e) => e.key === "Enter" && saveName()}
+    <div className={`npv-meal-card ${allComplete ? 'complete' : ''}`}>
+      {/* Cabecera */}
+      <div className="npv-meal-top">
+        <div className="npv-meal-left">
+          {/* Círculo de progreso */}
+          <div className="npv-meal-ring" style={{ '--pct': pct, '--rc': allComplete ? 'var(--accent-green)' : '#5B8DEF' }}>
+            <svg viewBox="0 0 36 36" className="npv-ring-svg">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="var(--border)" strokeWidth="3" />
+              <circle
+                cx="18" cy="18" r="15" fill="none"
+                stroke="var(--rc)" strokeWidth="3"
+                strokeDasharray={`${pct * 0.942} 94.2`}
+                strokeLinecap="round"
+                transform="rotate(-90 18 18)"
               />
-              <button className="na-icon-btn-sm" onClick={saveName}>
-                <Check size={14} />
-              </button>
+            </svg>
+            <span className="npv-ring-pct">{pct}%</span>
+          </div>
+
+          <div className="npv-meal-info">
+            {editingName ? (
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                <input
+                  className="na-input-inline"
+                  autoFocus
+                  value={tmpName}
+                  onChange={(e) => setTmpName(e.target.value)}
+                  onBlur={saveName}
+                  onKeyDown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setEditingName(false); }}
+                  style={{ fontSize: 14, fontWeight: 700 }}
+                />
+                <button className="na-icon-btn-sm" onClick={saveName}><Check size={12} /></button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span className="npv-meal-name">{meal.name}</span>
+                <button className="na-icon-btn-sm" onClick={() => { setTmpName(meal.name); setEditingName(true); }}>
+                  <Pencil size={11} />
+                </button>
+              </div>
+            )}
+            <div className="npv-meal-meta">
+              <Clock size={11} />
+              <input
+                type="time"
+                value={meal.time}
+                onChange={(e) => onUpdateMeal({ ...meal, time: e.target.value })}
+                className="npv-time-input"
+              />
+              <span className="npv-meal-count">{totalSel}/{totalTarget} raciones</span>
             </div>
-          ) : (
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <h3 className="na-meal-name">{meal.name}</h3>
-              <button
-                className="na-icon-btn-sm"
-                onClick={() => {
-                  setTmpName(meal.name);
-                  setEditing(true);
-                }}
-              >
-                <Pencil size={12} />
-              </button>
-            </div>
-          )}
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className="na-meal-time">
-              <Clock size={12} /> {meal.time}
-            </span>
-            <button
-              className="na-icon-btn-sm na-danger"
-              onClick={() => onRemoveMeal(meal.id)}
-            >
-              <Trash2 size={14} />
-            </button>
           </div>
         </div>
 
-        <div className="na-meal-progress-wrap">
-          <div className="na-meal-progress-bar">
-            <div
-              className="na-meal-progress-fill"
-              style={{
-                width: `${pct}%`,
-                background: allComplete
-                  ? "var(--accent-green)"
-                  : "var(--accent-coral)",
-              }}
-            />
-          </div>
-          <span className="na-meal-progress-label">
-            {totalSel}/{totalTarget} raciones
-          </span>
-          {allComplete && <Badge color="var(--accent-green)">Completo</Badge>}
+        <div className="npv-meal-actions">
+          {hasAnyItems && (
+            <button className="na-icon-btn-sm" title="Limpiar" onClick={onClearMeal}>
+              <Trash2 size={11} />
+            </button>
+          )}
+          <button className="na-icon-btn-sm na-danger" title="Eliminar comida" onClick={() => onRemoveMeal(meal.id)}>
+            <X size={13} />
+          </button>
+          <button
+            className="na-icon-btn-sm"
+            onClick={() => setExpanded((v) => !v)}
+            style={{ transform: expanded ? 'none' : 'rotate(-90deg)', transition: 'transform 0.2s' }}
+          >
+            <ChevronDown size={13} />
+          </button>
         </div>
       </div>
 
-      <div className="na-meal-slots">
-        {meal.slots.map((slot) => {
-          const meta = LIST_META[slot.listId];
-          const items = selections[slot.listId] || [];
-          const done = items.length >= slot.targetRations;
-          return (
-            <div
-              key={slot.listId}
-              className={`na-slot ${done ? "done" : ""}`}
-              style={{ "--slot-color": meta.color, "--slot-light": meta.light }}
-            >
-              <div className="na-slot-header">
-                <span className="na-slot-icon">{meta.icon}</span>
-                <span className="na-slot-name">{meta.name}</span>
-                <ProgressRing
-                  value={items.length}
-                  max={slot.targetRations}
-                  size={34}
-                  stroke={3}
-                  color={meta.color}
-                />
-                <div className="na-slot-stepper">
+      {/* Grupos / Slots */}
+      {expanded && (
+        <div className="npv-meal-body">
+          {meal.slots.map((slot) => {
+            const meta = LIST_META[slot.listId];
+            const items = selections[slot.listId] || [];
+            const done = items.length >= slot.targetRations;
+
+            return (
+              <div key={slot.listId} className={`npv-slot ${done ? 'done' : ''}`} style={{ '--sc': meta.color, '--sl': meta.light }}>
+                {/* Fila grupo */}
+                <div className="npv-slot-row">
+                  <span className="npv-slot-icon">{meta.icon}</span>
+                  <span className="npv-slot-name">{meta.name}</span>
+
+                  {/* Stepper */}
+                  <div className="npv-stepper">
+                    <button className="npv-step"
+                      onClick={() => onUpdateMeal({ ...meal, slots: meal.slots.map((s) => s.listId === slot.listId ? { ...s, targetRations: Math.max(1, s.targetRations - 1) } : s) })}>
+                      −
+                    </button>
+                    <span className="npv-step-val">{items.length}/{slot.targetRations}</span>
+                    <button className="npv-step"
+                      onClick={() => onUpdateMeal({ ...meal, slots: meal.slots.map((s) => s.listId === slot.listId ? { ...s, targetRations: s.targetRations + 1 } : s) })}>
+                      +
+                    </button>
+                  </div>
+
                   <button
-                    className="na-step-btn"
-                    onClick={() =>
-                      onUpdateMeal({
-                        ...meal,
-                        slots: meal.slots.map((s) =>
-                          s.listId === slot.listId
-                            ? {
-                                ...s,
-                                targetRations: Math.max(1, s.targetRations - 1),
-                              }
-                            : s,
-                        ),
-                      })
-                    }
-                  >
-                    <Minus size={12} />
-                  </button>
-                  <button
-                    className="na-step-btn"
-                    onClick={() =>
-                      onUpdateMeal({
-                        ...meal,
-                        slots: meal.slots.map((s) =>
-                          s.listId === slot.listId
-                            ? { ...s, targetRations: s.targetRations + 1 }
-                            : s,
-                        ),
-                      })
-                    }
+                    className="npv-slot-add"
+                    style={{ '--sc': meta.color }}
+                    onClick={() => onOpenModal(slot.listId)}
+                    title="Agregar alimento"
                   >
                     <Plus size={12} />
                   </button>
+
+                  {meal.slots.length > 1 && (
+                    <button className="na-icon-btn-sm na-danger"
+                      onClick={() => onUpdateMeal({ ...meal, slots: meal.slots.filter((s) => s.listId !== slot.listId) })}>
+                      <X size={11} />
+                    </button>
+                  )}
                 </div>
-                <button
-                  className="na-icon-btn-sm na-danger"
-                  onClick={() =>
-                    meal.slots.length > 1 &&
-                    onUpdateMeal({
-                      ...meal,
-                      slots: meal.slots.filter((s) => s.listId !== slot.listId),
-                    })
-                  }
-                >
-                  <X size={12} />
-                </button>
-              </div>
 
-              {items.length > 0 && (
-                <div className="na-slot-items">
-                  {items.map((item, i) => (
-                    <div key={i} className="na-slot-item">
-                      <span>{item.name}</span>
-                      <span className="na-slot-item-eq">{item.equivale}</span>
-                      <button
-                        className="na-slot-item-x"
-                        onClick={() => onRemoveItem(meal.id, slot.listId, i)}
-                      >
-                        &times;
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <button
-                className="na-slot-add-btn"
-                onClick={() => onOpenModal(meal, slot.listId)}
-              >
-                <Plus size={14} /> Agregar alimento
-              </button>
-            </div>
-          );
-        })}
-
-        {meal.slots.length < 6 && (
-          <button className="na-add-slot-btn" onClick={addSlot}>
-            <Plus size={14} /> Agregar lista
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Daily Summary Bar ──
-function DailySummaryBar({ meals, selections, open, onToggle, onClear }) {
-  const totalItems = Object.values(selections).reduce(
-    (a, bl) => a + Object.values(bl).reduce((b, arr) => b + arr.length, 0),
-    0,
-  );
-  const completed = meals.filter((m) =>
-    m.slots.every(
-      (s) => (selections[m.id]?.[s.listId]?.length || 0) >= s.targetRations,
-    ),
-  ).length;
-
-  return (
-    <div className={`na-summary-bar ${open ? "open" : ""}`}>
-      <button className="na-summary-toggle" onClick={onToggle}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div className="na-summary-icon">
-            <ClipboardList size={16} />
-          </div>
-          <div>
-            <span className="na-summary-title">Resumen del Día</span>
-            <span className="na-summary-meta">
-              {totalItems} alimentos · {completed}/{meals.length} comidas
-            </span>
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {totalItems > 0 && (
-            <button
-              className="na-clear-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onClear();
-              }}
-            >
-              <Trash2 size={12} /> Limpiar
-            </button>
-          )}
-          <ChevronDown
-            size={18}
-            style={{
-              transform: open ? "rotate(180deg)" : "none",
-              transition: "transform 0.2s",
-            }}
-          />
-        </div>
-      </button>
-      {open && (
-        <div className="na-summary-content">
-          {totalItems === 0 ? (
-            <EmptyState
-              icon={ClipboardList}
-              title="Sin alimentos"
-              message="Agrega alimentos desde el planificador"
-            />
-          ) : (
-            <div className="na-summary-grid">
-              {meals.map((meal) => {
-                const mSel = selections[meal.id] || {};
-                const hasAny = Object.values(mSel).some((a) => a.length > 0);
-                if (!hasAny) return null;
-                const allDone = meal.slots.every(
-                  (s) => (mSel[s.listId]?.length || 0) >= s.targetRations,
-                );
-                return (
-                  <div
-                    key={meal.id}
-                    className={`na-summary-meal ${allDone ? "done" : ""}`}
-                  >
-                    <div className="na-summary-meal-header">
-                      <span>{meal.name}</span>
-                      <span className="na-summary-meal-time">{meal.time}</span>
-                    </div>
-                    {meal.slots.map((slot) => {
-                      const items = mSel[slot.listId] || [];
-                      if (!items.length) return null;
-                      const meta = LIST_META[slot.listId];
-                      return (
-                        <div key={slot.listId} className="na-summary-slot">
-                          <span
-                            className="na-summary-slot-label"
-                            style={{ color: meta.color }}
-                          >
-                            {meta.icon} {meta.name} ({items.length}/
-                            {slot.targetRations})
-                          </span>
-                          {items.map((item, i) => (
-                            <div key={i} className="na-summary-item">
-                              {item.name} — {item.equivale}
-                            </div>
-                          ))}
-                        </div>
-                      );
-                    })}
+                {/* Alimentos seleccionados */}
+                {items.length > 0 && (
+                  <div className="npv-items">
+                    {items.map((item, i) => (
+                      <span key={i} className="npv-item-chip" style={{ '--sc': meta.color, '--sl': meta.light }}>
+                        {item.name}
+                        <button onClick={() => onRemoveItem(slot.listId, i)} className="npv-item-x">&times;</button>
+                      </span>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Agregar grupo */}
+          {meal.slots.length < Object.keys(LIST_META).length && (
+            <button className="npv-add-slot" onClick={addSlot}>
+              <Plus size={12} /> Agregar grupo
+            </button>
           )}
         </div>
       )}
@@ -523,223 +472,143 @@ function DailySummaryBar({ meals, selections, open, onToggle, onClear }) {
   );
 }
 
-// ── Food Modal ──
-function FoodModal({ meal, slotListId, selectedItems, onClose, onAddItem }) {
-  const [query, setQuery] = useState("");
-  const [activeListId, setActiveListId] = useState(slotListId);
-  const [openSubs, setOpenSubs] = useState({});
+// ─── Food Modal ───────────────────────────────────────────────────────────────
 
-  const meta = LIST_META[activeListId];
+function FoodModal({ meal, slotListId, selectedItems, listMeta, foodLists, alimentos, onClose, onAddItem }) {
+  const LIST_META = listMeta || {};
+  const FOOD_LISTS = foodLists || [];
+  const [query, setQuery] = useState('');
+  const [activeListId, setActiveListId] = useState(slotListId);
+
+  const meta = LIST_META[activeListId] || {};
   const activeList = FOOD_LISTS.find((l) => l.id === activeListId);
   const slotItems = selectedItems[activeListId] || [];
-  const activeSlot = meal.slots.find((s) => s.listId === activeListId);
-  const slotTarget = activeSlot?.targetRations || 0;
-  const slotDone = slotItems.length >= slotTarget;
+  const slotTarget = meal.slots.find((s) => s.listId === activeListId)?.targetRations || 0;
+
+  const allItems = useMemo(
+    () => (alimentos || [])
+      .filter((a) => a.grupo === activeListId)
+      .map((a) => ({ name: a.nombre, equivale: a.unidad, pesaMide: a.porcion_g ? `${a.porcion_g} g` : '-', sub: '' })),
+    [alimentos, activeListId]
+  );
 
   const filtered = useMemo(() => {
-    if (!query.trim()) return activeList?.subcategories || [];
+    if (!query.trim()) return allItems;
     const q = query.toLowerCase();
-    return (activeList?.subcategories || [])
-      .map((sub) => ({
-        ...sub,
-        items: sub.items.filter((i) => i.name.toLowerCase().includes(q)),
-      }))
-      .filter((sub) => sub.items.length > 0);
-  }, [query, activeList]);
-
-  const toggleSub = (name) =>
-    setOpenSubs((p) => ({ ...p, [name]: p[name] === false }));
-  const isOpen = (name) => openSubs[name] !== false;
+    return allItems.filter((i) => i.name.toLowerCase().includes(q) || i.sub.toLowerCase().includes(q));
+  }, [query, allItems]);
 
   return (
-    <div className="na-modal-overlay" onClick={onClose}>
-      <div className="na-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="na-modal-header" style={{ background: meta.color }}>
+    <div className="npv-overlay" onClick={onClose}>
+      <div className="npv-modal" onClick={(e) => e.stopPropagation()}>
+
+        {/* Header */}
+        <div className="npv-modal-head" style={{ '--mc': meta.color }}>
           <div>
-            <p className="na-modal-subtitle">
-              {meal.name} · {meal.time}
-            </p>
-            <h2 className="na-modal-title">
-              {meta.icon} {meta.name}
-            </h2>
+            <p className="npv-modal-sub">{meal.name}</p>
+            <h2 className="npv-modal-title">{meta.icon} {meta.name}</h2>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span className={`na-modal-pill ${slotDone ? "done" : ""}`}>
-              {slotItems.length}/{slotTarget} raciones {slotDone && "✓"}
-            </span>
-            <button className="na-modal-close" onClick={onClose}>
-              <X size={18} />
-            </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span className="npv-modal-counter">{slotItems.length}/{slotTarget}</span>
+            <button className="npv-modal-close" onClick={onClose}><X size={16} /></button>
           </div>
         </div>
 
-        <div className="na-modal-search">
-          <Search
-            size={16}
-            style={{
-              position: "absolute",
-              left: 28,
-              top: "50%",
-              transform: "translateY(-50%)",
-              color: "var(--text-tertiary)",
-            }}
-          />
-          <input
-            autoFocus
-            placeholder={`Buscar en ${meta.name}...`}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="na-modal-search-input"
-          />
-        </div>
-
-        <div className="na-modal-tabs">
+        {/* Tabs de grupos */}
+        <div className="npv-modal-tabs">
           {meal.slots.map((slot) => {
             const m = LIST_META[slot.listId];
-            const items = selectedItems[slot.listId] || [];
-            const done = items.length >= slot.targetRations;
+            const cnt = selectedItems[slot.listId]?.length || 0;
+            const done = cnt >= slot.targetRations;
             return (
               <button
                 key={slot.listId}
-                className={`na-modal-tab ${activeListId === slot.listId ? "active" : ""}`}
-                style={{ "--tab-color": m.color }}
-                onClick={() => {
-                  setActiveListId(slot.listId);
-                  setQuery("");
-                }}
+                className={`npv-modal-tab ${activeListId === slot.listId ? 'active' : ''}`}
+                style={{ '--tc': m.color }}
+                onClick={() => { setActiveListId(slot.listId); setQuery(''); }}
               >
-                {m.icon} {m.name}
-                <span className={`na-modal-tab-count ${done ? "done" : ""}`}>
-                  {items.length}/{slot.targetRations}
-                </span>
+                {m.icon}
+                <span className="npv-tab-label">{m.name}</span>
+                <span className={`npv-tab-cnt ${done ? 'done' : ''}`}>{cnt}/{slot.targetRations}</span>
               </button>
             );
           })}
         </div>
 
-        <div className="na-modal-body">
+        {/* Búsqueda */}
+        <div className="npv-modal-search">
+          <Search size={14} className="npv-search-icon" />
+          <input
+            autoFocus
+            placeholder={`Buscar en ${meta.name}...`}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="npv-search-input"
+          />
+        </div>
+
+        {/* Lista de alimentos */}
+        <div className="npv-modal-body">
           {filtered.length === 0 ? (
-            <EmptyState
-              icon={Search}
-              title="Sin resultados"
-              message="Intenta con otro término"
-            />
+            <EmptyState title="Sin resultados" sub="Prueba con otro término" />
           ) : (
-            filtered.map((sub) => (
-              <div key={sub.name} className="na-modal-sub">
-                <button
-                  className="na-modal-sub-header"
-                  onClick={() => toggleSub(sub.name)}
-                  style={{ background: meta.color + "10" }}
-                >
-                  <div
-                    style={{ display: "flex", alignItems: "center", gap: 8 }}
-                  >
-                    <span
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        background: meta.color,
-                      }}
-                    ></span>
-                    <span style={{ fontWeight: 600, color: meta.color }}>
-                      {sub.name}
-                    </span>
-                    {sub.note && (
-                      <span
-                        style={{ fontSize: 12, color: "var(--text-tertiary)" }}
-                      >
-                        · {sub.note}
-                      </span>
-                    )}
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      fontSize: 12,
-                      color: "var(--text-tertiary)",
-                    }}
-                  >
-                    {sub.items.length} alimentos
-                    {isOpen(sub.name) ? (
-                      <ChevronDown size={14} />
-                    ) : (
-                      <ChevronRight size={14} />
-                    )}
-                  </div>
-                </button>
-                {isOpen(sub.name) && (
-                  <div className="na-modal-table">
-                    <div className="na-modal-table-head">
-                      <span className="col-name">Alimento</span>
-                      <span className="col-eq">Equivale a</span>
-                      <span className="col-wt">Pesa/Mide</span>
-                      <span className="col-act"></span>
-                    </div>
-                    {sub.items.map((item) => {
-                      const added = slotItems.some((s) => s.name === item.name);
-                      return (
-                        <div key={item.name} className="na-modal-table-row">
-                          <span className="col-name">{item.name}</span>
-                          <span className="col-eq">
-                            <Badge color={meta.color}>{item.equivale}</Badge>
-                          </span>
-                          <span className="col-wt">{item.pesaMide}</span>
-                          <span className="col-act">
-                            <button
-                              className={`na-add-food-btn ${added ? "added" : ""}`}
-                              style={{ "--btn-color": meta.color }}
-                              onClick={() => onAddItem(activeListId, item)}
-                            >
-                              <Plus size={14} />
-                            </button>
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            ))
+            <table className="npv-food-table">
+              <thead>
+                <tr>
+                  <th>Alimento</th>
+                  <th>Medida</th>
+                  <th>Peso</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((item, i) => {
+                  const added = slotItems.some((s) => s.name === item.name);
+                  return (
+                    <tr key={i} className={added ? 'added' : ''}>
+                      <td>
+                        <span className="npv-food-name">{item.name}</span>
+                        <span className="npv-food-sub">{item.sub}</span>
+                      </td>
+                      <td>
+                        <span className="npv-food-badge" style={{ '--fc': meta.color, '--fl': meta.light }}>
+                          {item.equivale}
+                        </span>
+                      </td>
+                      <td className="npv-food-weight">{item.pesaMide}</td>
+                      <td>
+                        <button
+                          className={`npv-food-btn ${added ? 'added' : ''}`}
+                          style={{ '--fc': meta.color }}
+                          onClick={() => !added && onAddItem(activeListId, item)}
+                          disabled={added}
+                        >
+                          {added ? <Check size={13} /> : <Plus size={13} />}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           )}
         </div>
 
-        <div className="na-modal-footer">
-          <div className="na-modal-footer-stats">
+        {/* Footer */}
+        <div className="npv-modal-foot">
+          <div className="npv-foot-pills">
             {meal.slots.map((slot) => {
               const m = LIST_META[slot.listId];
-              const items = selectedItems[slot.listId] || [];
-              const done = items.length >= slot.targetRations;
+              const cnt = selectedItems[slot.listId]?.length || 0;
+              const done = cnt >= slot.targetRations;
               return (
-                <span
-                  key={slot.listId}
-                  style={{
-                    fontSize: 12,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 4,
-                  }}
-                >
-                  {m.icon}
-                  <strong
-                    style={{
-                      color: done
-                        ? "var(--accent-green)"
-                        : "var(--text-primary)",
-                    }}
-                  >
-                    {items.length}/{slot.targetRations}
-                  </strong>
+                <span key={slot.listId} className={`npv-foot-pill ${done ? 'done' : ''}`} style={{ '--fc': m.color }}>
+                  {m.icon} {cnt}/{slot.targetRations}
                 </span>
               );
             })}
           </div>
-          <button className="na-btn-primary" onClick={onClose}>
-            Listo
-          </button>
+          <button className="npv-foot-btn" onClick={onClose}>Listo ✓</button>
         </div>
       </div>
     </div>

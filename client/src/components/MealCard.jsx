@@ -1,8 +1,18 @@
-import { useState } from "react";
-import { Plus, Clock, Trash2, Edit2, Check, X } from "lucide-react";
-import { foodLists, LIST_COLORS } from "../data/foodLists";
+import { useState, useMemo } from 'react';
+import { Plus, Clock, Trash2, Edit2, Check, X } from 'lucide-react';
+import { createGrupoStyleMap } from '../constants/grupoStyles';
 
-export default function MealCard({ meal, selections, onOpenModal, onRemoveMeal, onUpdateMeal, onRemoveItem }) {
+export default function MealCard({
+  meal,
+  selections,
+  onOpenModal,
+  onRemoveMeal,
+  onUpdateMeal,
+  onRemoveItem,
+  grupos = [], // Passed from parent that uses useCatalogo
+}) {
+  const LIST_COLORS = useMemo(() => createGrupoStyleMap(grupos), [grupos]);
+  const foodLists = grupos.map(g => ({ id: g.id, name: g.nombre, icon: g.icon || '🍽️' }));
   const [editingName, setEditingName] = useState(false);
   const [tempName, setTempName] = useState(meal.name);
 
@@ -14,9 +24,7 @@ export default function MealCard({ meal, selections, onOpenModal, onRemoveMeal, 
   // Total raciones objetivo de todos los slots
   const totalTarget = meal.slots.reduce((a, s) => a + s.targetRations, 0);
   // Total raciones seleccionadas
-  const totalSelected = meal.slots.reduce(
-    (a, s) => a + (selections[s.listId]?.length || 0), 0
-  );
+  const totalSelected = meal.slots.reduce((a, s) => a + (selections[s.listId]?.length || 0), 0);
   const allComplete = meal.slots.every(
     (s) => (selections[s.listId]?.length || 0) >= s.targetRations
   );
@@ -42,13 +50,13 @@ export default function MealCard({ meal, selections, onOpenModal, onRemoveMeal, 
   return (
     <div
       className={`flex flex-col bg-white rounded-2xl shadow-sm border-2 transition-all duration-200 w-72 flex-shrink-0 ${
-        allComplete ? "border-emerald-300 shadow-emerald-100 shadow-md" : "border-gray-200"
+        allComplete ? 'border-emerald-300 shadow-emerald-100 shadow-md' : 'border-gray-200'
       }`}
     >
       {/* ── Card Header ── */}
       <div
         className={`rounded-t-xl px-4 py-3 flex items-center justify-between ${
-          allComplete ? "bg-emerald-500" : "bg-gray-800"
+          allComplete ? 'bg-emerald-500' : 'bg-gray-800'
         }`}
       >
         <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -60,7 +68,7 @@ export default function MealCard({ meal, selections, onOpenModal, onRemoveMeal, 
                 value={tempName}
                 onChange={(e) => setTempName(e.target.value)}
                 onBlur={saveName}
-                onKeyDown={(e) => e.key === "Enter" && saveName()}
+                onKeyDown={(e) => e.key === 'Enter' && saveName()}
               />
               <button onClick={saveName} className="text-white/70 hover:text-white">
                 <Check className="w-3.5 h-3.5" />
@@ -69,7 +77,10 @@ export default function MealCard({ meal, selections, onOpenModal, onRemoveMeal, 
           ) : (
             <>
               <span className="text-white font-bold text-sm truncate">{meal.name}</span>
-              <button onClick={() => setEditingName(true)} className="text-white/50 hover:text-white flex-shrink-0">
+              <button
+                onClick={() => setEditingName(true)}
+                className="text-white/50 hover:text-white flex-shrink-0"
+              >
                 <Edit2 className="w-3 h-3" />
               </button>
             </>
@@ -139,7 +150,16 @@ export default function MealCard({ meal, selections, onOpenModal, onRemoveMeal, 
 }
 
 // ── Slot individual ──────────────────────────────────────────
-function SlotRow({ slot, selectedItems, onOpenModal, onRemove, onUpdateRations, onChangeList, canRemove, onRemoveItem }) {
+function SlotRow({
+  slot,
+  selectedItems,
+  onOpenModal,
+  onRemove,
+  onUpdateRations,
+  onChangeList,
+  canRemove,
+  onRemoveItem,
+}) {
   const [showItems, setShowItems] = useState(false);
   const c = LIST_COLORS[slot.listId];
   const list = foodLists.find((l) => l.id === slot.listId);
@@ -149,7 +169,9 @@ function SlotRow({ slot, selectedItems, onOpenModal, onRemove, onUpdateRations, 
   const pct = target > 0 ? Math.min(current / target, 1) : 0;
 
   return (
-    <div className={`rounded-xl border ${complete ? "border-emerald-200 bg-emerald-50" : `${c.border} ${c.bg}`}`}>
+    <div
+      className={`rounded-xl border ${complete ? 'border-emerald-200 bg-emerald-50' : `${c.border} ${c.bg}`}`}
+    >
       {/* Slot header row */}
       <div className="flex items-center gap-2 px-3 py-2">
         {/* List selector */}
@@ -157,7 +179,7 @@ function SlotRow({ slot, selectedItems, onOpenModal, onRemove, onUpdateRations, 
         <select
           value={slot.listId}
           onChange={(e) => onChangeList(Number(e.target.value))}
-          className={`flex-1 min-w-0 text-xs font-semibold bg-transparent outline-none cursor-pointer ${complete ? "text-emerald-700" : c.text} truncate`}
+          className={`flex-1 min-w-0 text-xs font-semibold bg-transparent outline-none cursor-pointer ${complete ? 'text-emerald-700' : c.text} truncate`}
         >
           {foodLists.map((l) => (
             <option key={l.id} value={l.id}>
@@ -171,14 +193,18 @@ function SlotRow({ slot, selectedItems, onOpenModal, onRemove, onUpdateRations, 
           <button
             onClick={() => onUpdateRations(Math.max(1, target - 1))}
             className="w-5 h-5 rounded-full bg-white border border-gray-200 hover:bg-gray-100 text-gray-500 text-xs flex items-center justify-center"
-          >−</button>
+          >
+            −
+          </button>
           <span className="text-xs font-bold text-gray-700 w-8 text-center">
             {current}/{target}
           </span>
           <button
             onClick={() => onUpdateRations(target + 1)}
             className="w-5 h-5 rounded-full bg-white border border-gray-200 hover:bg-gray-100 text-gray-500 text-xs flex items-center justify-center"
-          >+</button>
+          >
+            +
+          </button>
         </div>
 
         {/* Remove slot */}
@@ -193,7 +219,7 @@ function SlotRow({ slot, selectedItems, onOpenModal, onRemove, onUpdateRations, 
       <div className="px-3 pb-1">
         <div className="h-1.5 bg-white/60 rounded-full overflow-hidden">
           <div
-            className={`h-full rounded-full transition-all duration-500 ${complete ? "bg-emerald-400" : c.dot.replace("bg-", "bg-")}`}
+            className={`h-full rounded-full transition-all duration-500 ${complete ? 'bg-emerald-400' : c.dot.replace('bg-', 'bg-')}`}
             style={{ width: `${pct * 100}%` }}
           />
         </div>
@@ -206,14 +232,24 @@ function SlotRow({ slot, selectedItems, onOpenModal, onRemove, onUpdateRations, 
             onClick={() => setShowItems(!showItems)}
             className={`text-[10px] ${c.text} opacity-70 hover:opacity-100 underline`}
           >
-            {showItems ? "Ocultar" : `Ver ${selectedItems.length} alimento${selectedItems.length > 1 ? "s" : ""}`}
+            {showItems
+              ? 'Ocultar'
+              : `Ver ${selectedItems.length} alimento${selectedItems.length > 1 ? 's' : ''}`}
           </button>
           {showItems && (
             <ul className="mt-1 space-y-0.5 max-h-24 overflow-y-auto scrollbar-thin">
               {selectedItems.map((item, i) => (
-                <li key={i} className="flex items-center justify-between text-[11px] bg-white/70 rounded px-2 py-0.5">
+                <li
+                  key={i}
+                  className="flex items-center justify-between text-[11px] bg-white/70 rounded px-2 py-0.5"
+                >
                   <span className="text-gray-600 truncate flex-1">{item.name}</span>
-                  <button onClick={() => onRemoveItem(i)} className="text-gray-300 hover:text-red-400 ml-1">×</button>
+                  <button
+                    onClick={() => onRemoveItem(i)}
+                    className="text-gray-300 hover:text-red-400 ml-1"
+                  >
+                    ×
+                  </button>
                 </li>
               ))}
             </ul>
@@ -227,7 +263,7 @@ function SlotRow({ slot, selectedItems, onOpenModal, onRemove, onUpdateRations, 
           onClick={onOpenModal}
           className={`flex items-center justify-center gap-1 w-full py-1.5 rounded-lg text-xs font-semibold transition-all ${
             complete
-              ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
               : `bg-white/80 ${c.text} hover:bg-white border ${c.border}`
           }`}
         >
@@ -240,19 +276,19 @@ function SlotRow({ slot, selectedItems, onOpenModal, onRemove, onUpdateRations, 
 }
 
 function to24h(time12) {
-  if (!time12) return "07:00";
-  const [time, period] = time12.split(" ");
-  if (!period) return time.padStart(5, "0");
-  let [h, m] = time.split(":").map(Number);
-  if (period === "PM" && h !== 12) h += 12;
-  if (period === "AM" && h === 12) h = 0;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  if (!time12) return '07:00';
+  const [time, period] = time12.split(' ');
+  if (!period) return time.padStart(5, '0');
+  let [h, m] = time.split(':').map(Number);
+  if (period === 'PM' && h !== 12) h += 12;
+  if (period === 'AM' && h === 12) h = 0;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
 function to12h(time24) {
-  let [h, m] = time24.split(":").map(Number);
-  const period = h >= 12 ? "PM" : "AM";
+  let [h, m] = time24.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
   if (h > 12) h -= 12;
   if (h === 0) h = 12;
-  return `${h}:${String(m).padStart(2, "0")} ${period}`;
+  return `${h}:${String(m).padStart(2, '0')} ${period}`;
 }

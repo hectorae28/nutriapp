@@ -33,16 +33,42 @@ export function ProgressRing({ value, max, size = 44, stroke = 4, color }) {
   return (
     <div style={{ width: size, height: size, position: 'relative' }}>
       <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none"
-          stroke="var(--border)" strokeWidth={stroke} />
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none"
-          stroke={c} strokeWidth={stroke}
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke="var(--border)"
+          strokeWidth={stroke}
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke={c}
+          strokeWidth={stroke}
           strokeDasharray={`${circ * pct} ${circ}`}
           strokeLinecap="round"
-          style={{ transition: 'stroke-dasharray 0.5s ease' }} />
+          style={{ transition: 'stroke-dasharray 0.5s ease' }}
+        />
       </svg>
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <span style={{ fontSize: size < 40 ? 10 : 12, fontWeight: 700, color: complete ? 'var(--accent-green)' : 'var(--text-primary)' }}>
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <span
+          style={{
+            fontSize: size < 40 ? 10 : 12,
+            fontWeight: 700,
+            color: complete ? 'var(--accent-green)' : 'var(--text-primary)',
+          }}
+        >
           {value}/{max}
         </span>
       </div>

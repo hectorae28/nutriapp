@@ -1,5 +1,5 @@
-import { NavLink } from "react-router-dom";
-import { Leaf, LayoutGrid, ShieldCheck } from "lucide-react";
+import { NavLink } from 'react-router-dom';
+import { Leaf, LayoutGrid, ShieldCheck } from 'lucide-react';
 
 export default function Header() {
   return (
@@ -10,12 +10,8 @@ export default function Header() {
             <Leaf className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-gray-800 leading-none">
-              NutriPlan
-            </h1>
-            <p className="text-xs text-gray-400 leading-none mt-0.5">
-              Plan de Alimentación
-            </p>
+            <h1 className="text-lg font-bold text-gray-800 leading-none">NutriPlan</h1>
+            <p className="text-xs text-gray-400 leading-none mt-0.5">Plan de Alimentación</p>
           </div>
         </div>
 
@@ -25,8 +21,8 @@ export default function Header() {
             className={({ isActive }) =>
               `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
                 isActive
-                  ? "bg-gray-800 text-white"
-                  : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+                  ? 'bg-gray-800 text-white'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
               }`
             }
           >
@@ -38,8 +34,8 @@ export default function Header() {
             className={({ isActive }) =>
               `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
                 isActive
-                  ? "bg-gray-800 text-white"
-                  : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+                  ? 'bg-gray-800 text-white'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
               }`
             }
           >

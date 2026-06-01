@@ -1,28 +1,37 @@
-import {
-  Calendar,
-  LayoutGrid,
-  BarChart2,
-  User,
-  Sun,
-  Moon,
-  Leaf,
-} from "lucide-react";
-import { useNav, useTheme, useIsMobile } from "../contexts/AppContext";
-import { MOCK_PATIENT } from "../data/nutriData";
+import { NavLink } from 'react-router-dom';
+import { Calendar, LayoutGrid, BarChart2, User, Users, Sun, Moon, Leaf, Home, LogOut, LayoutTemplate } from 'lucide-react';
+import { useTheme, useIsMobile } from '../contexts/AppContext';
+import { useAuth } from '../contexts/AuthContext';
 
-export const NAV_ITEMS = [
-  { id: "planner", label: "Planificador", icon: Calendar },
-  { id: "tables", label: "Tablas", icon: LayoutGrid },
-  { id: "reports", label: "Reportes", icon: BarChart2 },
-  { id: "profile", label: "Paciente", icon: User },
+export const NAV_ITEMS_BASE = [
+  { path: '/planner', label: 'Planificador', icon: Calendar },
+  { path: '/tablas', label: 'Tablas', icon: LayoutGrid },
+  { path: '/reportes', label: 'Reportes', icon: BarChart2 },
+  { path: '/perfil', label: 'Paciente', icon: User },
 ];
 
+export const NAV_ITEMS = NAV_ITEMS_BASE;
+
 export default function Sidebar() {
-  const { view, setView } = useNav();
   const { dark, toggle } = useTheme();
   const isMobile = useIsMobile();
+  const { user, groups, isNutricionista, isAdmin, logout } = useAuth();
 
   if (isMobile) return null;
+
+  const navItems = isNutricionista || isAdmin
+    ? [
+        { path: '/dashboard', label: 'Dashboard', icon: Home },
+        { path: '/pacientes', label: 'Pacientes', icon: Users },
+        { path: '/plantillas', label: 'Plantillas', icon: LayoutTemplate },
+        ...NAV_ITEMS_BASE,
+      ]
+    : NAV_ITEMS_BASE;
+
+  const nombreCompleto = user
+    ? `${user.first_name ?? ''} ${user.last_name ?? ''}`.trim() || user.username
+    : '—';
+  const rol = groups?.[0] || 'Usuario';
 
   return (
     <aside className="na-sidebar">
@@ -37,40 +46,50 @@ export default function Sidebar() {
       </div>
 
       <nav className="na-sidebar-nav">
-        {NAV_ITEMS.map((item) => (
-          <button
-            key={item.id}
-            className={`na-nav-item ${view === item.id ? "active" : ""}`}
-            onClick={() => setView(item.id)}
+        {navItems.map((item) => (
+          <NavLink
+            key={item.path}
+            to={item.path}
+            className={({ isActive }) => `na-nav-item${isActive ? ' active' : ''}`}
           >
             <item.icon size={20} />
             <span>{item.label}</span>
-          </button>
+          </NavLink>
         ))}
       </nav>
 
       <div className="na-sidebar-footer">
         <div className="na-patient-card-mini">
           <div className="na-avatar">
-            {MOCK_PATIENT.name
-              .split(" ")
+            {nombreCompleto
+              .split(' ')
+              .filter(Boolean)
               .map((n) => n[0])
-              .join("")}
+              .join('')
+              .slice(0, 2)
+              .toUpperCase() || '?'}
           </div>
           <div className="na-patient-info-mini">
-            <span className="na-patient-name-mini">{MOCK_PATIENT.name}</span>
-            <span className="na-patient-meta-mini">
-              {MOCK_PATIENT.objective}
-            </span>
+            <span className="na-patient-name-mini">{nombreCompleto}</span>
+            <span className="na-patient-meta-mini">{rol}</span>
           </div>
         </div>
-        <button
-          className="na-theme-toggle"
-          onClick={toggle}
-          title={dark ? "Modo claro" : "Modo oscuro"}
-        >
-          {dark ? <Sun size={18} /> : <Moon size={18} />}
-        </button>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button
+            className="na-theme-toggle"
+            onClick={toggle}
+            title={dark ? 'Modo claro' : 'Modo oscuro'}
+          >
+            {dark ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+          <button
+            className="na-theme-toggle"
+            onClick={logout}
+            title="Cerrar sesión"
+          >
+            <LogOut size={18} />
+          </button>
+        </div>
       </div>
     </aside>
   );

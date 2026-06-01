@@ -1,14 +1,38 @@
-import { useState } from "react";
-import { Search, ChevronDown, ChevronRight } from "lucide-react";
-import { foodLists, LIST_COLORS } from "../data/foodLists";
+import { useState, useMemo } from 'react';
+import { Search, ChevronDown, ChevronRight } from 'lucide-react';
+import { useCatalogo } from '../hooks/useCatalogo';
+import { createGrupoStyleMap } from '../constants/grupoStyles';
 
 export default function FoodListsView() {
-  const [query, setQuery] = useState("");
-  const [activeId, setActiveId] = useState(1);
+  const [query, setQuery] = useState('');
+  const [activeId, setActiveId] = useState(null);
   const [openSubs, setOpenSubs] = useState({});
+  
+  const { grupos, alimentosPorGrupo, loading, error } = useCatalogo();
+  const LIST_COLORS = useMemo(() => createGrupoStyleMap(grupos), [grupos]);
+  
+  // Set activeId to first grupo once loaded
+  if (activeId === null && grupos.length > 0) {
+    setActiveId(grupos[0].id);
+  }
 
-  const activeList = foodLists.find((l) => l.id === activeId);
-  const c = LIST_COLORS[activeId];
+  const activeGrupo = grupos.find((g) => g.id === activeId);
+  const c = LIST_COLORS[activeId] || {};
+  
+  // Transform alimentos to legacy format
+  const activeAlimentos = (alimentosPorGrupo[activeId] || []).map(a => ({
+    name: a.nombre,
+    equivale: `${a.porcion_g}${a.unidad}`,
+    pesaMide: `${a.porcion_g}g`,
+  }));
+  
+  const activeList = activeGrupo ? {
+    ...activeGrupo,
+    subcategories: [{
+      name: activeGrupo.nombre,
+      items: activeAlimentos,
+    }],
+  } : null;
 
   const filtered = activeList?.subcategories
     .map((sub) => ({
@@ -20,6 +44,23 @@ export default function FoodListsView() {
     .filter((sub) => sub.items.length > 0);
 
   const toggle = (name) => setOpenSubs((p) => ({ ...p, [name]: !p[name] }));
+  
+  if (loading) {
+    return (
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-2"></div>
+        <p className="text-sm text-gray-500">Cargando tablas...</p>
+      </div>
+    );
+  }
+  
+  if (error) {
+    return (
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
+        <p className="text-sm text-red-500">Error: {error}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -37,18 +78,23 @@ export default function FoodListsView() {
         </div>
         {/* List tabs */}
         <div className="flex flex-wrap gap-1.5 mt-3">
-          {foodLists.map((list) => {
-            const lc = LIST_COLORS[list.id];
-            const active = activeId === list.id;
+          {grupos.map((grupo) => {
+            const lc = LIST_COLORS[grupo.id] || {};
+            const active = activeId === grupo.id;
             return (
               <button
-                key={list.id}
-                onClick={() => { setActiveId(list.id); setQuery(""); }}
+                key={grupo.id}
+                onClick={() => {
+                  setActiveId(grupo.id);
+                  setQuery('');
+                }}
                 className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
-                  active ? `${lc.badge} ${lc.border} shadow-sm` : "bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-300"
+                  active
+                    ? `${lc.badge || 'bg-gray-100 text-gray-700'} ${lc.border || 'border-gray-200'} shadow-sm`
+                    : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-300'
                 }`}
               >
-                {list.icon} {list.name}
+                {grupo.icon || '🍽️'} {grupo.nombre}
               </button>
             );
           })}
@@ -68,11 +114,17 @@ export default function FoodListsView() {
                 <div className="flex items-center gap-2">
                   <span className={`w-2 h-2 rounded-full ${c.dot}`} />
                   <span className={`font-semibold text-sm ${c.text}`}>{sub.name}</span>
-                  {sub.note && <span className="text-xs text-gray-400 hidden md:block">· {sub.note}</span>}
+                  {sub.note && (
+                    <span className="text-xs text-gray-400 hidden md:block">· {sub.note}</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-400">
                   <span>{sub.items.length} alimentos</span>
-                  {isOpen ? <ChevronDown className={`w-4 h-4 ${c.text}`} /> : <ChevronRight className={`w-4 h-4 ${c.text}`} />}
+                  {isOpen ? (
+                    <ChevronDown className={`w-4 h-4 ${c.text}`} />
+                  ) : (
+                    <ChevronRight className={`w-4 h-4 ${c.text}`} />
+                  )}
                 </div>
               </button>
               {isOpen && (
@@ -90,7 +142,11 @@ export default function FoodListsView() {
                         <tr key={item.name} className="hover:bg-gray-50 transition-colors">
                           <td className="px-5 py-2.5 text-gray-700">{item.name}</td>
                           <td className="px-3 py-2.5">
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.badge}`}>{item.equivale}</span>
+                            <span
+                              className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.badge}`}
+                            >
+                              {item.equivale}
+                            </span>
                           </td>
                           <td className="px-3 py-2.5 text-gray-400 text-xs">{item.pesaMide}</td>
                         </tr>

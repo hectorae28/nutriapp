@@ -1,8 +1,9 @@
-import { useState } from "react";
-import { ChevronUp, ChevronDown, ClipboardList, Trash2 } from "lucide-react";
-import { LIST_COLORS, foodLists } from "../data/foodLists";
+import { useState, useMemo } from 'react';
+import { ChevronUp, ChevronDown, ClipboardList, Trash2 } from 'lucide-react';
+import { createGrupoStyleMap } from '../constants/grupoStyles';
 
-export default function DailySummary({ meals, selections, onClearAll }) {
+export default function DailySummary({ meals, selections, onClearAll, grupos = [] }) {
+  const LIST_COLORS = useMemo(() => createGrupoStyleMap(grupos), [grupos]);
   const [open, setOpen] = useState(false);
 
   // selections shape: { mealId: { listId: [items] } }
@@ -18,7 +19,7 @@ export default function DailySummary({ meals, selections, onClearAll }) {
   return (
     <div
       className={`fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-200 shadow-2xl transition-all duration-300 ${
-        open ? "max-h-[70vh]" : "max-h-16"
+        open ? 'max-h-[70vh]' : 'max-h-16'
       } overflow-hidden`}
     >
       {/* Toggle bar */}
@@ -47,7 +48,10 @@ export default function DailySummary({ meals, selections, onClearAll }) {
         <div className="flex items-center gap-2">
           {totalItems > 0 && (
             <button
-              onClick={(e) => { e.stopPropagation(); onClearAll(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onClearAll();
+              }}
               className="text-xs text-gray-400 hover:text-red-500 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"
             >
               <Trash2 className="w-3 h-3" />
@@ -66,7 +70,7 @@ export default function DailySummary({ meals, selections, onClearAll }) {
       {open && (
         <div
           className="overflow-y-auto scrollbar-thin px-6 pb-6"
-          style={{ maxHeight: "calc(70vh - 64px)" }}
+          style={{ maxHeight: 'calc(70vh - 64px)' }}
         >
           {totalItems === 0 ? (
             <div className="text-center py-8 text-gray-400">
@@ -91,13 +95,13 @@ export default function DailySummary({ meals, selections, onClearAll }) {
                   <div
                     key={meal.id}
                     className={`rounded-xl border-2 overflow-hidden ${
-                      allComplete ? "border-emerald-200" : "border-gray-200"
+                      allComplete ? 'border-emerald-200' : 'border-gray-200'
                     }`}
                   >
                     {/* Meal header */}
                     <div
                       className={`px-3 py-2 flex items-center justify-between ${
-                        allComplete ? "bg-emerald-500" : "bg-gray-800"
+                        allComplete ? 'bg-emerald-500' : 'bg-gray-800'
                       }`}
                     >
                       <span className="text-white font-bold text-sm">{meal.name}</span>
@@ -108,17 +112,23 @@ export default function DailySummary({ meals, selections, onClearAll }) {
                     {meal.slots.map((slot) => {
                       const items = mealSel[slot.listId] || [];
                       if (items.length === 0) return null;
-                      const lc = LIST_COLORS[slot.listId];
-                      const list = foodLists.find((l) => l.id === slot.listId);
+                      const lc = LIST_COLORS[slot.listId] || {};
+                      const grupo = grupos.find((g) => g.id === slot.listId);
                       const done = items.length >= slot.targetRations;
                       return (
                         <div key={slot.listId}>
                           {/* Slot sub-header */}
-                          <div className={`px-3 py-1.5 flex items-center justify-between ${lc.light}`}>
-                            <span className={`text-xs font-semibold ${lc.text} flex items-center gap-1`}>
-                              {list?.icon} {list?.name}
+                          <div
+                            className={`px-3 py-1.5 flex items-center justify-between ${lc.light || 'bg-gray-50'}`}
+                          >
+                            <span
+                              className={`text-xs font-semibold ${lc.text || 'text-gray-700'} flex items-center gap-1`}
+                            >
+                              {grupo?.icon || '🍽️'} {grupo?.nombre || `Grupo ${slot.listId}`}
                             </span>
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${done ? "bg-emerald-100 text-emerald-700" : lc.badge}`}>
+                            <span
+                              className={`text-[10px] px-1.5 py-0.5 rounded-full ${done ? 'bg-emerald-100 text-emerald-700' : lc.badge || 'bg-gray-100 text-gray-700'}`}
+                            >
                               {items.length}/{slot.targetRations}
                             </span>
                           </div>
@@ -127,10 +137,18 @@ export default function DailySummary({ meals, selections, onClearAll }) {
                             {items.map((item, i) => (
                               <li key={i} className="px-3 py-1.5 flex items-center justify-between">
                                 <div className="min-w-0">
-                                  <p className="text-xs font-medium text-gray-700 truncate">{item.name}</p>
-                                  <p className="text-[10px] text-gray-400">{item.equivale} · {item.pesaMide}</p>
+                                  <p className="text-xs font-medium text-gray-700 truncate">
+                                    {item.name}
+                                  </p>
+                                  <p className="text-[10px] text-gray-400">
+                                    {item.equivale} · {item.pesaMide}
+                                  </p>
                                 </div>
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 ml-2 ${lc.badge}`}>×1</span>
+                                <span
+                                  className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 ml-2 ${lc.badge || 'bg-gray-100 text-gray-700'}`}
+                                >
+                                  ×1
+                                </span>
                               </li>
                             ))}
                           </ul>

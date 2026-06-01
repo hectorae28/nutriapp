@@ -1,118 +1,183 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Search, ChevronDown, ChevronRight } from 'lucide-react';
 import TopHeader from '../components/TopHeader';
 import { EmptyState } from '../components/SharedComponents';
-import { LIST_META, FOOD_LISTS } from '../data/nutriData';
+import { catalogoApi } from '../api/catalogo';
+
+// Paleta de colores y emojis para grupos dinámicos
+const PALETA = [
+  { color: '#4CAF50', light: '#E8F5E9', icon: '🥛' },
+  { color: '#F44336', light: '#FFEBEE', icon: '🍗' },
+  { color: '#FF9800', light: '#FFF3E0', icon: '🥩' },
+  { color: '#8BC34A', light: '#F1F8E9', icon: '🥦' },
+  { color: '#E91E63', light: '#FCE4EC', icon: '🍎' },
+  { color: '#795548', light: '#EFEBE9', icon: '🌾' },
+  { color: '#FFD600', light: '#FFFDE7', icon: '🫒' },
+  { color: '#9C27B0', light: '#F3E5F5', icon: '🍬' },
+];
 
 export default function TablesView() {
+  const [grupos, setGrupos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [query, setQuery] = useState('');
-  const [activeId, setActiveId] = useState(1);
+  const [activeIdx, setActiveIdx] = useState(0);
   const [openSubs, setOpenSubs] = useState({});
 
-  const meta = LIST_META[activeId];
-  const activeList = FOOD_LISTS.find(l => l.id === activeId);
+  useEffect(() => {
+    catalogoApi
+      .grupos()
+      .then((data) => {
+        setGrupos(data);
+        setLoading(false);
+      })
+      .catch(() => {
+        setError('No se pudo cargar el catálogo');
+        setLoading(false);
+      });
+  }, []);
+
+  const activeGrupo = grupos[activeIdx] || null;
+  const paleta = PALETA[activeIdx % PALETA.length];
 
   const filtered = useMemo(() => {
-    if (!query.trim()) return activeList?.subcategories || [];
+    if (!activeGrupo) return [];
+    const alimentos = activeGrupo.alimentos?.filter((a) => a.activo) || [];
+    if (!query.trim()) return alimentos;
     const q = query.toLowerCase();
-    return (activeList?.subcategories || [])
-      .map(sub => ({ ...sub, items: sub.items.filter(i => i.name.toLowerCase().includes(q)) }))
-      .filter(sub => sub.items.length > 0);
-  }, [query, activeList]);
+    return alimentos.filter((a) => a.nombre.toLowerCase().includes(q));
+  }, [query, activeGrupo]);
 
-  const toggle = (name) => setOpenSubs(p => ({ ...p, [name]: p[name] === false }));
-  const isOpen = (name) => openSubs[name] !== false;
+  const toggle = (name) => setOpenSubs((p) => ({ ...p, [name]: !p[name] }));
 
-  const totalItems = activeList?.subcategories.reduce((a, s) => a + s.items.length, 0) || 0;
+  if (loading)
+    return (
+      <div className="na-tables-view">
+        <TopHeader title="Tablas de Intercambio" subtitle="Cargando catálogo..." />
+        <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}>
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              border: '3px solid var(--accent-green)',
+              borderTopColor: 'transparent',
+              borderRadius: '50%',
+              animation: 'spin 0.8s linear infinite',
+            }}
+          />
+        </div>
+      </div>
+    );
+
+  if (error || grupos.length === 0)
+    return (
+      <div className="na-tables-view">
+        <TopHeader title="Tablas de Intercambio" subtitle="Sistema de intercambios venezolano" />
+        <EmptyState
+          title={error || 'Sin datos en el catálogo'}
+          sub="El administrador debe cargar los grupos alimenticios"
+        />
+      </div>
+    );
 
   return (
     <div className="na-tables-view">
-      <TopHeader title="Tablas de Intercambio" subtitle="Consulta equivalencias de cada grupo alimenticio" />
+      <TopHeader
+        title="Tablas de Intercambio"
+        subtitle="Consulta equivalencias de cada grupo alimenticio"
+      />
 
       <div className="na-tables-content">
+        {/* Grid de categorías */}
         <div className="na-cat-grid">
-          {FOOD_LISTS.map(list => {
-            const m = LIST_META[list.id];
-            const count = list.subcategories.reduce((a, s) => a + s.items.length, 0);
-            const active = activeId === list.id;
+          {grupos.map((grupo, idx) => {
+            const p = PALETA[idx % PALETA.length];
+            const active = activeIdx === idx;
             return (
               <button
-                key={list.id}
+                key={grupo.id}
                 className={`na-cat-card ${active ? 'active' : ''}`}
-                style={{ '--cat-color': m.color, '--cat-light': m.light }}
-                onClick={() => { setActiveId(list.id); setQuery(''); }}
+                style={{ '--cat-color': p.color, '--cat-light': p.light }}
+                onClick={() => {
+                  setActiveIdx(idx);
+                  setQuery('');
+                }}
               >
-                <span className="na-cat-icon">{m.icon}</span>
-                <span className="na-cat-name">{m.name}</span>
-                <span className="na-cat-count">{count} alimentos</span>
+                <span className="na-cat-icon">{p.icon}</span>
+                <span className="na-cat-name">{grupo.nombre}</span>
+                <span className="na-cat-count">{grupo.alimentos?.length || 0} alimentos</span>
               </button>
             );
           })}
         </div>
 
+        {/* Panel de detalle */}
         <div className="na-table-panel">
-          <div className="na-table-panel-header" style={{ borderColor: meta.color + '30' }}>
+          <div className="na-table-panel-header" style={{ borderColor: paleta.color + '30' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: 28 }}>{meta.icon}</span>
+              <span style={{ fontSize: 28 }}>{paleta.icon}</span>
               <div>
-                <h3 className="na-table-panel-title" style={{ color: meta.color }}>{meta.name}</h3>
+                <h3 className="na-table-panel-title" style={{ color: paleta.color }}>
+                  {activeGrupo?.nombre}
+                </h3>
                 <span className="na-table-panel-count">
-                  {totalItems} alimentos en {activeList?.subcategories.length} categorías
+                  {activeGrupo?.alimentos?.length || 0} alimentos · {activeGrupo?.kcal_racion}{' '}
+                  kcal/ración · P:{activeGrupo?.proteina_g}g C:{activeGrupo?.carb_g}g G:
+                  {activeGrupo?.grasa_g}g
                 </span>
               </div>
             </div>
             <div className="na-table-search-wrap">
-              <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
+              <Search
+                size={14}
+                style={{
+                  position: 'absolute',
+                  left: 10,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'var(--text-tertiary)',
+                  pointerEvents: 'none',
+                }}
+              />
               <input
-                placeholder="Buscar alimentos..."
-                value={query}
-                onChange={e => setQuery(e.target.value)}
                 className="na-table-search"
+                type="text"
+                placeholder="Buscar alimento..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
               />
             </div>
           </div>
 
           <div className="na-table-body">
             {filtered.length === 0 ? (
-              <EmptyState icon={Search} title="Sin resultados" message={`No se encontraron alimentos con "${query}"`} />
-            ) : filtered.map(sub => (
-              <div key={sub.name} className="na-subtable">
-                <button className="na-subtable-header" onClick={() => toggle(sub.name)}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span className="na-subtable-dot" style={{ background: meta.color }}></span>
-                    <span className="na-subtable-name">{sub.name}</span>
-                    {sub.note && <span className="na-subtable-note">{sub.note}</span>}
+              <EmptyState title="Sin resultados" sub="Prueba con otro término de búsqueda" />
+            ) : (
+              <div>
+                <div className="na-subtable-head-row">
+                  <span>Alimento</span>
+                  <span>Medida</span>
+                  <span>Peso</span>
+                </div>
+                {filtered.map((alimento) => (
+                  <div key={alimento.id} className="na-subtable-row">
+                    <span>{alimento.nombre}</span>
+                    <span>
+                      <span
+                        className="na-eq-badge"
+                        style={{
+                          background: paleta.light,
+                          color: paleta.color,
+                        }}
+                      >
+                        {alimento.unidad}
+                      </span>
+                    </span>
+                    <span style={{ color: 'var(--text-tertiary)' }}>{alimento.porcion_g} g</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span className="na-subtable-count">{sub.items.length}</span>
-                    {isOpen(sub.name)
-                      ? <ChevronDown size={16} style={{ color: meta.color }} />
-                      : <ChevronRight size={16} style={{ color: meta.color }} />
-                    }
-                  </div>
-                </button>
-                {isOpen(sub.name) && (
-                  <div className="na-subtable-body">
-                    <div className="na-subtable-head-row">
-                      <span className="col-name">Una ración de</span>
-                      <span className="col-eq">Equivale a</span>
-                      <span className="col-wt">Pesa / Mide</span>
-                    </div>
-                    {sub.items.map((item, i) => (
-                      <div key={i} className="na-subtable-row">
-                        <span className="col-name">{item.name}</span>
-                        <span className="col-eq">
-                          <span className="na-eq-badge" style={{ background: meta.color + '15', color: meta.color }}>
-                            {item.equivale}
-                          </span>
-                        </span>
-                        <span className="col-wt">{item.pesaMide}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                ))}
               </div>
-            ))}
+            )}
           </div>
         </div>
       </div>

@@ -1,16 +1,6 @@
 from pathlib import Path
-from dotenv import load_dotenv
-import os
 
-load_dotenv()
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-
-SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-changeme")
-
-DEBUG = os.getenv("DEBUG", "True") == "True"
-
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 # Application definition
 INSTALLED_APPS = [
@@ -23,10 +13,16 @@ INSTALLED_APPS = [
     # third party
     "rest_framework",
     "corsheaders",
+    # local apps
+    "apps.users",
+    "apps.expediente",
+    "apps.catalogo",
+    "apps.planes",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -55,17 +51,11 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "nutriapi.wsgi.application"
 
-# Database
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
-}
-
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
+    },
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
@@ -79,8 +69,23 @@ USE_TZ = True
 
 # Static files
 STATIC_URL = "static/"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+
+# React frontend build — servido por WhiteNoise
+# En Docker: /client/dist | En dev local: ../../client/dist
+from pathlib import Path as _Path
+
+_docker_dist = _Path("/client/dist")
+_local_dist = BASE_DIR.parent / "client" / "dist"
+FRONTEND_DIST = _docker_dist if _docker_dist.exists() else _local_dist
+WHITENOISE_ROOT = FRONTEND_DIST if FRONTEND_DIST.exists() else None
+
+# Asegurar que STATICFILES_DIRS incluye el frontend dist
+STATICFILES_DIRS = [FRONTEND_DIST] if FRONTEND_DIST.exists() else []
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+AUTH_USER_MODEL = "users.User"
 
 # Django REST Framework
 REST_FRAMEWORK = {
@@ -91,9 +96,3 @@ REST_FRAMEWORK = {
         "rest_framework.authentication.SessionAuthentication",
     ],
 }
-
-# CORS — permite peticiones del frontend en dev
-CORS_ALLOWED_ORIGINS = os.getenv(
-    "CORS_ALLOWED_ORIGINS",
-    "http://localhost:5173,http://localhost:5174",
-).split(",")

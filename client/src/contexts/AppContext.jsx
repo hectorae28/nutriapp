@@ -14,28 +14,13 @@ export function ThemeProvider({ children }) {
   }, [dark]);
 
   return (
-    <ThemeCtx.Provider value={{ dark, toggle: () => setDark(d => !d) }}>
+    <ThemeCtx.Provider value={{ dark, toggle: () => setDark((d) => !d) }}>
       {children}
     </ThemeCtx.Provider>
   );
 }
 
 export const useTheme = () => useContext(ThemeCtx);
-
-// ── Navigation Context ──
-export const NavCtx = createContext();
-
-export function NavProvider({ children }) {
-  const [view, setView] = useState('planner');
-
-  return (
-    <NavCtx.Provider value={{ view, setView }}>
-      {children}
-    </NavCtx.Provider>
-  );
-}
-
-export const useNav = () => useContext(NavCtx);
 
 // ── Mobile hook ──
 export function useIsMobile() {
@@ -47,3 +32,18 @@ export function useIsMobile() {
   }, []);
   return mobile;
 }
+
+// ── Paciente Context ──
+export const PacienteCtx = createContext();
+
+export function PacienteProvider({ children }) {
+  const [pacienteSeleccionado, setPacienteSeleccionado] = useState(null);
+
+  return (
+    <PacienteCtx.Provider value={{ pacienteSeleccionado, setPacienteSeleccionado }}>
+      {children}
+    </PacienteCtx.Provider>
+  );
+}
+
+export const usePaciente = () => useContext(PacienteCtx);
