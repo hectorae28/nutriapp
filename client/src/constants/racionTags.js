@@ -1,5 +1,5 @@
 /**
- * Tags para raciones en planes alimenticios y plantillas.
+ * Tags para raciones en planes alimenticios.
  * value: string enviado al backend (o '' para sin tag)
  */
 export const RACION_TAGS = [

@@ -4,6 +4,7 @@ import {
   FileText, User, Clipboard, Activity, Clock, Table, Ruler, FileDown,
   Pencil, Info, Calendar, Phone, Mail, MapPin, BookOpen, Briefcase,
   AlertCircle, CheckCircle2, Droplets, ChevronDown, ChevronUp, Bone, Heart,
+  Download, FileSpreadsheet,
 } from 'lucide-react';
 import { useToast } from '../contexts/ToastContext';
 import { expedienteApi } from '../api/expediente';
@@ -12,6 +13,17 @@ import ImportarExcel from './ImportarExcel';
 import { LoadingSpinner } from './LoadingSpinner';
 import { EmptyState } from './SharedComponents';
 import { GRUPOS_NOMBRES } from '../constants/consumoGrupos';
+
+// ── Helper para descarga de archivo desde API ────────────────────────────────
+async function _descargarArchivo(url, filename) {
+  const resp = await fetch(url, { credentials: 'include' });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const blob = await resp.blob();
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = href; a.download = filename; a.click();
+  URL.revokeObjectURL(href);
+}
 
 // ── Helpers de display ───────────────────────────────────────────────────────
 const val = (v, unit = '') =>
@@ -35,6 +47,8 @@ const calcEdad = (fecha) => {
 // ── Componentes UI ───────────────────────────────────────────────────────────
 const Section = ({ title, icon: Icon, children, open = false }) => {
   const [isOpen, setIsOpen] = useState(open);
+  // Abrir automáticamente si el prop cambia (ej: cuando llegan datos asincrónicos)
+  useEffect(() => { if (open) setIsOpen(true); }, [open]);
   return (
     <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, background: '#fff', marginBottom: 10, overflow: 'hidden' }}>
       <button
@@ -97,13 +111,41 @@ const Metric = ({ label, value, unit = '' }) => (
 );
 
 // ── Componente principal ─────────────────────────────────────────────────────
-const HistoriaCompletaTab = ({ paciente, onExpedienteUpdated }) => {
+const HistoriaCompletaTab = ({ paciente, onExpedienteUpdated, readOnly = false }) => {
   const { addToast } = useToast();
   const [expediente, setExpediente] = useState(null);
   const [recordatorios, setRecordatorios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingRecordatorios, setLoadingRecordatorios] = useState(true);
   const [showImportExcel, setShowImportExcel] = useState(false);
+  const [exportando, setExportando] = useState(null); // 'excel' | 'pdf' | null
+
+  const nombreArchivo = (ext) => {
+    const nombre = paciente.user?.first_name
+      ? `${paciente.user.first_name}_${paciente.user.last_name || ''}`.replace(/\s+/g,'_')
+      : `paciente_${paciente.id}`;
+    return `historia_${nombre}.${ext}`;
+  };
+
+  const handleExportarExcel = async () => {
+    setExportando('excel');
+    try {
+      await _descargarArchivo(`/api/pacientes/${paciente.id}/exportar-excel/`, nombreArchivo('xls'));
+      addToast({ message: '✓ Excel descargado correctamente', type: 'success' });
+    } catch (e) {
+      addToast({ message: `Error al exportar Excel: ${e.message}`, type: 'error' });
+    } finally { setExportando(null); }
+  };
+
+  const handleExportarPdf = async () => {
+    setExportando('pdf');
+    try {
+      await _descargarArchivo(`/api/pacientes/${paciente.id}/exportar-pdf/`, nombreArchivo('pdf'));
+      addToast({ message: '✓ PDF descargado correctamente', type: 'success' });
+    } catch (e) {
+      addToast({ message: `Error al exportar PDF: ${e.message}`, type: 'error' });
+    } finally { setExportando(null); }
+  };
 
   const cargarExpediente = async () => {
     setLoading(true);
@@ -143,6 +185,7 @@ const HistoriaCompletaTab = ({ paciente, onExpedienteUpdated }) => {
     setShowImportExcel(false);
     addToast({ message: 'Expediente actualizado exitosamente', type: 'success' });
     cargarExpediente();
+    cargarRecordatorios();   // recargar recordatorio importado desde el Excel
     onExpedienteUpdated();
   };
 
@@ -156,14 +199,16 @@ const HistoriaCompletaTab = ({ paciente, onExpedienteUpdated }) => {
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 60, gap: 16 }}>
       <EmptyState icon={BookOpen} title="Historia Clínica Vacía"
         message="Este paciente aún no tiene un expediente nutricional." />
-      <button
-        onClick={() => setShowImportExcel(true)}
-        style={{ padding: '8px 18px', background: '#2563eb', color: '#fff', border: 'none',
-          borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
-      >
-        <FileDown size={14} style={{ display: 'inline', marginRight: 6 }} />
-        Importar desde Excel
-      </button>
+      {!readOnly && (
+        <button
+          onClick={() => setShowImportExcel(true)}
+          style={{ padding: '8px 18px', background: '#2563eb', color: '#fff', border: 'none',
+            borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+        >
+          <FileDown size={14} style={{ display: 'inline', marginRight: 6 }} />
+          Importar desde Excel
+        </button>
+      )}
     </div>
   );
 
@@ -182,22 +227,18 @@ const HistoriaCompletaTab = ({ paciente, onExpedienteUpdated }) => {
     kcal:         a.kcal         + (parseFloat(i.kcal)         || 0),
   }), { intercambios: 0, proteinas_g: 0, grasas_g: 0, cho_g: 0, kcal: 0 });
 
+  // Campos calculados que devuelve la API (serializer)
+  const gKgP = {
+    proteinas: exp.proteinas_g_kg_dia,
+    grasas:    exp.grasas_g_kg_dia,
+    cho:       exp.cho_g_kg_dia,
+  };
+  const tieneGKg = gKgP.proteinas !== null && gKgP.proteinas !== undefined;
+
   // GRUPOS_NOMBRES is imported at top from shared constants
 
   return (
     <div>
-      {/* Botones de acción */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginBottom: 14 }}>
-        <button
-          onClick={() => setShowImportExcel(true)}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px',
-            background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8,
-            cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
-        >
-          <FileDown size={14} /> Importar Excel actualizado
-        </button>
-      </div>
-
       {/* ── DATOS PERSONALES ── */}
       <Section title="Datos Personales" icon={User} open>
         <Grid cols={3}>
@@ -308,7 +349,7 @@ const HistoriaCompletaTab = ({ paciente, onExpedienteUpdated }) => {
       </Section>
 
       {/* ── RECORDATORIO 24H ── */}
-      <Section title="Recordatorio Alimentario 24h" icon={Clock}>
+      <Section title="Recordatorio Alimentario 24h" icon={Clock} open={recordatorios.length > 0}>
         {loadingRecordatorios ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0' }}>
             <LoadingSpinner size={20} />
@@ -363,26 +404,45 @@ const HistoriaCompletaTab = ({ paciente, onExpedienteUpdated }) => {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#f9fafb' }}>
-                    {['Alimento','INT','P (g)','G (g)','CHO (g)','KCAL'].map(h => (
-                      <th key={h} style={{ padding: '8px 10px', textAlign: h === 'Alimento' ? 'left' : 'right',
-                        fontSize: 11, fontWeight: 700, color: '#6b7280', borderBottom: '2px solid #e5e7eb',
-                        textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
+                    {['Alimento','INT','P (g/día)','G (g/día)','CHO (g/día)','KCAL/día',
+                      ...(tieneGKg ? ['P g/kg-p/d','G g/kg-p/d','CHO g/kg-p/d'] : [])
+                    ].map((h, idx) => (
+                      <th key={h} style={{
+                        padding: '8px 10px', textAlign: h === 'Alimento' ? 'left' : 'right',
+                        fontSize: 11, fontWeight: 700, borderBottom: '2px solid #e5e7eb',
+                        textTransform: 'uppercase', letterSpacing: '0.04em',
+                        color: idx > 5 ? '#15803d' : '#6b7280',
+                        background: idx > 5 ? '#ecfdf5' : '#f9fafb',
+                      }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {cc.map((item, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                      <td style={{ padding: '7px 10px', fontWeight: 500, color: '#374151' }}>
-                        {GRUPOS_NOMBRES[item.grupo] || item.nombre || item.grupo}
-                      </td>
-                      {['intercambios','proteinas_g','grasas_g','cho_g','kcal'].map(k => (
-                        <td key={k} style={{ padding: '7px 10px', textAlign: 'right', color: '#374151' }}>
-                          {parseFloat(item[k]) || 0}
+                  {cc.map((item, i) => {
+                    const p   = parseFloat(item.proteinas_g) || 0;
+                    const g   = parseFloat(item.grasas_g)    || 0;
+                    const cho = parseFloat(item.cho_g)       || 0;
+                    const pRef = parseFloat(exp.peso_usual_kg) || 0;
+                    return (
+                      <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                        <td style={{ padding: '7px 10px', fontWeight: 500, color: '#374151' }}>
+                          {GRUPOS_NOMBRES[item.grupo] || item.nombre || item.grupo}
                         </td>
-                      ))}
-                    </tr>
-                  ))}
+                        {['intercambios','proteinas_g','grasas_g','cho_g','kcal'].map(k => (
+                          <td key={k} style={{ padding: '7px 10px', textAlign: 'right', color: '#374151' }}>
+                            {parseFloat(item[k]) || 0}
+                          </td>
+                        ))}
+                        {tieneGKg && pRef > 0 && (
+                          <>
+                            <td style={{ padding: '7px 10px', textAlign: 'right', color: '#15803d', fontSize: 12 }}>{p ? (p / pRef).toFixed(2) : '—'}</td>
+                            <td style={{ padding: '7px 10px', textAlign: 'right', color: '#15803d', fontSize: 12 }}>{g ? (g / pRef).toFixed(2) : '—'}</td>
+                            <td style={{ padding: '7px 10px', textAlign: 'right', color: '#15803d', fontSize: 12 }}>{cho ? (cho / pRef).toFixed(2) : '—'}</td>
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })}
                   <tr style={{ background: '#f0fdf4', fontWeight: 700 }}>
                     <td style={{ padding: '8px 10px', color: '#111827' }}>TOTAL</td>
                     {['intercambios','proteinas_g','grasas_g','cho_g','kcal'].map(k => (
@@ -390,6 +450,13 @@ const HistoriaCompletaTab = ({ paciente, onExpedienteUpdated }) => {
                         {ccTotales[k].toFixed(2)}
                       </td>
                     ))}
+                    {tieneGKg && (
+                      <>
+                        <td style={{ padding: '8px 10px', textAlign: 'right', color: '#15803d' }}>{gKgP.proteinas?.toFixed(2) ?? '—'}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'right', color: '#15803d' }}>{gKgP.grasas?.toFixed(2) ?? '—'}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'right', color: '#15803d' }}>{gKgP.cho?.toFixed(2) ?? '—'}</td>
+                      </>
+                    )}
                   </tr>
                 </tbody>
               </table>
@@ -406,6 +473,7 @@ const HistoriaCompletaTab = ({ paciente, onExpedienteUpdated }) => {
 
       {/* ── EVALUACIÓN OBJETIVA ── */}
       <Section title="Evaluación Objetiva — Pesos" icon={Ruler}>
+        {/* Pesos de referencia */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 10 }}>
           <Metric label="Peso Máximo"       value={exp.peso_maximo_kg}        unit="kg" />
           <Metric label="Peso Mínimo"       value={exp.peso_minimo_kg}        unit="kg" />
@@ -422,6 +490,40 @@ const HistoriaCompletaTab = ({ paciente, onExpedienteUpdated }) => {
             </div>
           </div>
         </div>
+
+        {/* Campos calculados: %PP, %PI, %PU, %P.Pre-Qx */}
+        {(exp.pct_peso_ideal !== null || exp.pct_peso_prequirurgico !== null) && (
+          <>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', margin: '10px 0 8px' }}>
+              Porcentajes calculados
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 10 }}>
+              {/* %PI = peso_usual / peso_ideal × 100 */}
+              <div style={{ textAlign: 'center', padding: '10px 8px', border: '1px solid #bbf7d0', borderRadius: 8, background: '#f0fdf4' }}>
+                <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>%PI (Peso Ideal)</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: exp.pct_peso_ideal > 110 ? '#ea580c' : '#15803d' }}>
+                  {exp.pct_peso_ideal != null ? `${Number(exp.pct_peso_ideal).toFixed(1)}%` : '—'}
+                </div>
+                <div style={{ fontSize: 10, color: '#6b7280' }}>P.Usual / P.Ideal</div>
+              </div>
+              {/* %P.Pre-Qx = peso_prequirurgico / peso_usual × 100 */}
+              <div style={{ textAlign: 'center', padding: '10px 8px', border: '1px solid #ddd6fe', borderRadius: 8, background: '#f5f3ff' }}>
+                <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>%P.Pre-Qx / P.Usual</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#7c3aed' }}>
+                  {exp.pct_peso_prequirurgico != null ? `${Number(exp.pct_peso_prequirurgico).toFixed(1)}%` : '—'}
+                </div>
+                <div style={{ fontSize: 10, color: '#6b7280' }}>P.Pre-Qx / P.Usual</div>
+              </div>
+              {/* %PP y %PU se calculan por RegistroProgreso → se ven en sección Progreso */}
+              <div style={{ textAlign: 'center', padding: '10px 8px', border: '1px solid #e5e7eb', borderRadius: 8, background: '#f9fafb' }}>
+                <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>%PP / %PU</div>
+                <div style={{ fontSize: 13, color: '#9ca3af', marginTop: 4 }}>Ver sección</div>
+                <div style={{ fontSize: 10, color: '#9ca3af' }}>Progreso / Antropometría</div>
+              </div>
+            </div>
+          </>
+        )}
+
         {exp.diagnostico_nutricional && (
           <div style={{ marginTop: 10 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 4 }}>
@@ -448,6 +550,7 @@ const HistoriaCompletaTab = ({ paciente, onExpedienteUpdated }) => {
 HistoriaCompletaTab.propTypes = {
   paciente: PropTypes.object.isRequired,
   onExpedienteUpdated: PropTypes.func.isRequired,
+  readOnly: PropTypes.bool,
 };
 
 export default HistoriaCompletaTab;

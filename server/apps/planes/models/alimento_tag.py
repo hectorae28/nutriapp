@@ -30,28 +30,3 @@ class AlimentoTagPlan(models.Model):
 
     def __str__(self):
         return f"{self.get_tag_display()} — {self.alimento} ({self.plan})"
-
-
-class AlimentoTagPlantilla(models.Model):
-    """Etiqueta sobre un alimento específico dentro de una plantilla alimenticia."""
-    plantilla = models.ForeignKey(
-        "planes.PlantillaAlimenticia",
-        on_delete=models.CASCADE,
-        related_name="alimento_tags",
-    )
-    alimento = models.ForeignKey(
-        "catalogo.Alimento",
-        on_delete=models.CASCADE,
-        related_name="+",
-    )
-    tag = models.CharField(max_length=20, choices=TAG_CHOICES)
-    nota = models.CharField(max_length=300, blank=True, default="")
-
-    class Meta:
-        verbose_name = "etiqueta de alimento (plantilla)"
-        verbose_name_plural = "etiquetas de alimentos (plantilla)"
-        unique_together = [["plantilla", "alimento"]]
-        ordering = ["tag", "alimento__nombre"]
-
-    def __str__(self):
-        return f"{self.get_tag_display()} — {self.alimento} ({self.plantilla})"

@@ -7,13 +7,14 @@ import Login from './pages/Login';
 import DashboardView from './views/DashboardView';
 import PlannerView from './views/PlannerView';
 import TablesView from './views/TablesView';
+import CatalogoAdminView from './views/CatalogoAdminView';
 import ReportsView from './views/ReportsView';
 import ProfileView from './views/ProfileView';
 import PacientesView from './views/PacientesView';
 import PacienteDetalleView from './views/PacienteDetalleView';
 import PlanEditorView from './views/PlanEditorView';
-import PlantillasView from './views/PlantillasView';
-import PlantillaEditorView from './views/PlantillaEditorView';
+import RecuperarPasswordView from './views/RecuperarPasswordView';
+import ResetPasswordView from './views/ResetPasswordView';
 
 function LoadingScreen() {
   return (
@@ -27,20 +28,25 @@ function LoadingScreen() {
 }
 
 function ProtectedRoute({ children, allowedGroups }) {
-  const { user, groups, loading, isAdmin } = useAuth();
+  const { user, groups, loading, isAdmin, isNutricionista, isSecretario } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   if (allowedGroups && !isAdmin && !allowedGroups.some((g) => groups.includes(g))) {
+    // Redirigir a la home de su rol
+    if (isNutricionista) return <Navigate to="/dashboard" replace />;
+    if (isSecretario) return <Navigate to="/pacientes" replace />;
     return <Navigate to="/planner" replace />;
   }
   return children;
 }
 
 function RootRedirect() {
-  const { user, loading, isNutricionista, isAdmin } = useAuth();
+  const { user, loading, isNutricionista, isAdmin, isSecretario } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
-  return <Navigate to={isNutricionista || isAdmin ? '/dashboard' : '/planner'} replace />;
+  if (isNutricionista || isAdmin) return <Navigate to="/dashboard" replace />;
+  if (isSecretario) return <Navigate to="/pacientes" replace />;
+  return <Navigate to="/planner" replace />;
 }
 
 export default function App() {
@@ -50,6 +56,8 @@ export default function App() {
         <PacienteProvider>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/recuperar-password" element={<RecuperarPasswordView />} />
+            <Route path="/reset-password/:uidb64/:token" element={<ResetPasswordView />} />
 
             <Route
               path="/"
@@ -68,14 +76,43 @@ export default function App() {
                   </ProtectedRoute>
                 }
               />
-              <Route path="planner" element={<PlannerView />} />
-              <Route path="tablas" element={<TablesView />} />
-              <Route path="reportes" element={<ReportsView />} />
+              <Route
+                path="planner"
+                element={
+                  <ProtectedRoute allowedGroups={['Nutricionista', 'Paciente', 'Admin']}>
+                    <PlannerView />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="tablas"
+                element={
+                  <ProtectedRoute allowedGroups={['Nutricionista', 'Admin']}>
+                    <TablesView />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="tablas/admin"
+                element={
+                  <ProtectedRoute allowedGroups={['Nutricionista', 'Admin']}>
+                    <CatalogoAdminView />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="reportes"
+                element={
+                  <ProtectedRoute allowedGroups={['Nutricionista', 'Paciente', 'Admin']}>
+                    <ReportsView />
+                  </ProtectedRoute>
+                }
+              />
               <Route path="perfil" element={<ProfileView />} />
               <Route
                 path="pacientes"
                 element={
-                  <ProtectedRoute allowedGroups={['Nutricionista', 'Admin']}>
+                  <ProtectedRoute allowedGroups={['Nutricionista', 'Admin', 'Secretario']}>
                     <PacientesView />
                   </ProtectedRoute>
                 }
@@ -83,7 +120,7 @@ export default function App() {
               <Route
                 path="pacientes/:id"
                 element={
-                  <ProtectedRoute allowedGroups={['Nutricionista', 'Admin']}>
+                  <ProtectedRoute allowedGroups={['Nutricionista', 'Admin', 'Secretario']}>
                     <PacienteDetalleView />
                   </ProtectedRoute>
                 }
@@ -93,22 +130,6 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedGroups={['Nutricionista', 'Admin']}>
                     <PlanEditorView />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="plantillas"
-                element={
-                  <ProtectedRoute allowedGroups={['Nutricionista', 'Admin']}>
-                    <PlantillasView />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="plantillas/editor"
-                element={
-                  <ProtectedRoute allowedGroups={['Nutricionista', 'Admin']}>
-                    <PlantillaEditorView />
                   </ProtectedRoute>
                 }
               />

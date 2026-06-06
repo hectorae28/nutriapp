@@ -1,10 +1,23 @@
 import { useState, useEffect } from 'react';
-import { Users, Activity, Clipboard, UserPlus, FlaskConical, TrendingUp } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Users, Activity, Clipboard, UserPlus, FlaskConical, TrendingUp, FileDown } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import TopHeader from '../components/TopHeader';
 import { StatCard, Badge } from '../components/SharedComponents';
 import { reportesApi } from '../api/reportes';
-import ReporteModal from '../components/ReporteModal';
+import { useToast } from '../contexts/ToastContext';
+
+async function descargarPdfPaciente(pacienteId, nombre) {
+  const res = await fetch(`/api/pacientes/${pacienteId}/exportar-pdf/`, { credentials: 'include' });
+  if (!res.ok) throw new Error('Error al generar PDF');
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${nombre || 'paciente'}.pdf`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 const DIET_COLORS = {
   hipocalorico: '#5B8DEF',
@@ -47,7 +60,20 @@ export default function DashboardView() {
   const [metricas, setMetricas] = useState(null);
   const [comparativa, setComparativa] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedPacienteId, setSelectedPacienteId] = useState(null);
+  const [descargando, setDescargando] = useState(null);
+  const { showToast } = useToast();
+  const navigate = useNavigate();
+
+  const handleDescargarPdf = async (pacienteId, nombre) => {
+    setDescargando(pacienteId);
+    try {
+      await descargarPdfPaciente(pacienteId, nombre);
+    } catch {
+      showToast('Error al generar PDF', 'error');
+    } finally {
+      setDescargando(null);
+    }
+  };
 
   useEffect(() => {
     async function load() {
@@ -238,67 +264,41 @@ export default function DashboardView() {
 
         {/* Sección 3: Tabla comparativa */}
         <div className="na-dashboard-table-card">
-          <h3 className="na-dashboard-section-title">Tabla Comparativa de Pacientes</h3>
+          <h3 className="na-dashboard-section-title">Pacientes</h3>
           {comparativa.length > 0 ? (
             <div className="na-table-container">
               <table className="na-table">
                 <thead>
                   <tr>
                     <th>Paciente</th>
-                    <th>Peso</th>
                     <th>Δ kg</th>
-                    <th>IMC</th>
-                    <th>Plan activo</th>
-                    <th>Adherencia</th>
-                    <th>Último registro</th>
-                    <th>Acciones</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {comparativa.map((p) => {
                     const diff = p.diferencia_kg || 0;
-                    const diffColor =
-                      diff < 0
-                        ? 'var(--accent-green)'
-                        : diff > 0
-                          ? '#E05555'
-                          : 'var(--text-secondary)';
+                    const diffColor = diff < 0 ? 'var(--accent-green)' : diff > 0 ? '#E05555' : 'var(--text-secondary)';
                     const diffSign = diff > 0 ? '+' : '';
-
                     return (
-                      <tr key={p.paciente_id}>
+                      <tr
+                        key={p.paciente_id}
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => navigate(`/pacientes/${p.paciente_id}`)}
+                      >
                         <td style={{ fontWeight: 600 }}>{p.nombre}</td>
-                        <td>
-                          {p.peso_inicial
-                            ? `${p.peso_inicial} → ${p.peso_actual} kg`
-                            : `${p.peso_actual} kg`}
-                        </td>
                         <td style={{ color: diffColor, fontWeight: 600 }}>
-                          {diffSign}
-                          {diff.toFixed(1)} kg
+                          {diff !== 0 ? `${diffSign}${diff.toFixed(1)} kg` : '—'}
                         </td>
-                        <td>{p.imc_actual ? p.imc_actual.toFixed(1) : '—'}</td>
-                        <td>
-                          {p.plan_activo ? (
-                            <Badge color="#7E57C2">{p.plan_activo}</Badge>
-                          ) : (
-                            <span style={{ color: 'var(--text-tertiary)' }}>Sin plan</span>
-                          )}
-                        </td>
-                        <td>
-                          <Badge color={getAdherenciaColor(p.adherencia_pct || 0)}>
-                            {p.adherencia_pct || 0}%
-                          </Badge>
-                        </td>
-                        <td style={{ color: 'var(--text-secondary)', fontSize: '0.9em' }}>
-                          {p.ultimo_registro || '—'}
-                        </td>
-                        <td>
+                        <td onClick={(e) => e.stopPropagation()}>
                           <button
                             className="na-btn-sm na-btn-primary"
-                            onClick={() => setSelectedPacienteId(p.paciente_id)}
+                            disabled={descargando === p.paciente_id}
+                            onClick={() => handleDescargarPdf(p.paciente_id, p.nombre)}
+                            style={{ display: 'flex', alignItems: 'center', gap: 5, opacity: descargando === p.paciente_id ? 0.6 : 1 }}
                           >
-                            📄 Reporte
+                            <FileDown size={13} />
+                            {descargando === p.paciente_id ? '...' : 'PDF'}
                           </button>
                         </td>
                       </tr>
@@ -317,9 +317,7 @@ export default function DashboardView() {
         </div>
       </div>
 
-      {selectedPacienteId && (
-        <ReporteModal pacienteId={selectedPacienteId} onClose={() => setSelectedPacienteId(null)} />
-      )}
+
     </div>
   );
 }

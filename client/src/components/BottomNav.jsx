@@ -12,11 +12,30 @@ const NUTRICIONISTA_ITEMS = [
 export default function BottomNav() {
   const { dark, toggle } = useTheme();
   const isMobile = useIsMobile();
-  const { isNutricionista, isAdmin, logout } = useAuth();
+  const { isNutricionista, isAdmin, isSecretario, logout } = useAuth();
 
   if (!isMobile) return null;
 
-  const items = isNutricionista || isAdmin ? [...NUTRICIONISTA_ITEMS, ...NAV_ITEMS_BASE] : NAV_ITEMS_BASE;
+  const items = (() => {
+    if (isNutricionista || isAdmin) return [
+      { path: '/dashboard', label: 'Dashboard', icon: Home },
+      { path: '/pacientes', label: 'Pacientes', icon: Users },
+      { path: '/planner', label: 'Plan Alimenticio', icon: NAV_ITEMS_BASE[0].icon },
+      { path: '/tablas', label: 'Tablas', icon: NAV_ITEMS_BASE[1].icon },
+      { path: '/reportes', label: 'Reportes', icon: NAV_ITEMS_BASE[2].icon },
+      { path: '/perfil', label: 'Perfil', icon: NAV_ITEMS_BASE[3].icon },
+    ];
+    if (isSecretario) return [
+      { path: '/pacientes', label: 'Pacientes', icon: Users },
+      { path: '/perfil', label: 'Perfil', icon: NAV_ITEMS_BASE[3].icon },
+    ];
+    // Paciente
+    return [
+      { path: '/planner', label: 'Mi Plan', icon: NAV_ITEMS_BASE[0].icon },
+      { path: '/reportes', label: 'Mi Progreso', icon: NAV_ITEMS_BASE[2].icon },
+      { path: '/perfil', label: 'Perfil', icon: NAV_ITEMS_BASE[3].icon },
+    ];
+  })();
 
   return (
     <nav className="na-bottom-nav">

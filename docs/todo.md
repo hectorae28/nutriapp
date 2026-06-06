@@ -1,0 +1,3 @@
+- revizar los botones de go back, ya que estan sobre el sidebar(igual el de descargar en la vista de paciente)
+- la vista de perfil es unico de paciente, crea otre vista de perfil mas sencilla para el resto de los usuario (igual con la vista de reporte)
+- en la vista de tabla de intercambio, replanteate los emojis, y el nutricionista o admin deberia poder hacer crud de los alimentos

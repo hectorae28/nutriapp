@@ -43,9 +43,15 @@ export default function WizardNuevoPaciente({ onClose, onSuccess }) {
     cafeinicos_v_dia: '', alcohol: '', tabaquicos_und_dia: '',
     sueno_hr_dia: '', apetito: 'NORMAL', micciones_v_dia: '', evacuaciones_v_dia: '',
     actividad_fisica: '',
-    tg_dispepsia: false, tg_distension: false, tg_aerofagia: false,
-    tg_flatulencia: '', tg_meteorismo: false, tg_diarrea: false,
-    tg_nauseas: false, tg_vomitos: false, tg_rgef: false,
+    tg_dispepsia: false, tg_dispepsia_causa: '',
+    tg_distension: false, tg_distension_causa: '',
+    tg_aerofagia: false, tg_aerofagia_causa: '',
+    tg_flatulencia: '', 
+    tg_meteorismo: false, tg_meteorismo_causa: '',
+    tg_diarrea: false, tg_diarrea_causa: '',
+    tg_nauseas: false, tg_nauseas_causa: '',
+    tg_vomitos: false, tg_vomitos_causa: '',
+    tg_rgef: false, tg_rgef_causa: '',
     estrenimiento: 'NO', alergias_alimentarias: '',
     trat_farmacologico: '', trat_suplemento_oral: '', trat_otros: '',
     // Paso 4 - recordatorio 24h
@@ -57,6 +63,8 @@ export default function WizardNuevoPaciente({ onClose, onSuccess }) {
     peso_maximo_kg: '', peso_minimo_kg: '', peso_usual_kg: '',
     peso_ideal_kg: '', peso_deseado_kg: '', peso_prequirurgico_kg: '',
     circunferencia_muneca_cm: '', contextura: '',
+    // Antropometría actual (genera RegistroProgreso)
+    peso_actual_kg: '', talla_cm: '',
     // Paso 6 - Examen Bioquímico
     examen_fecha: new Date().toISOString().split('T')[0],
     examen_proteinas_totales: '', examen_albumina: '', examen_globulina: '',
@@ -93,6 +101,47 @@ export default function WizardNuevoPaciente({ onClose, onSuccess }) {
     kcal: +(acc.kcal + (parseFloat(i.kcal) || 0)).toFixed(2),
   }), { intercambios: 0, proteinas_g: 0, grasas_g: 0, cho_g: 0, kcal: 0 }), [datos.consumo_calorico]);
 
+  // ── Cálculos clínicos en tiempo real ────────────────────────────────────────
+  const calculos = useMemo(() => {
+    const pActual  = parseFloat(datos.peso_actual_kg)  || 0;
+    const pUsual   = parseFloat(datos.peso_usual_kg)   || 0;
+    const pIdeal   = parseFloat(datos.peso_ideal_kg)   || 0;
+    const pPreQx   = parseFloat(datos.peso_prequirurgico_kg) || 0;
+    const talla    = parseFloat(datos.talla_cm)        || 0;
+    // Peso de referencia para g/kg-p/día: peso actual si existe, sino peso usual
+    const pRef     = pActual || pUsual;
+
+    // IMC
+    const imc = pActual && talla ? +(pActual / ((talla / 100) ** 2)).toFixed(1) : null;
+    const imcLabel = imc == null ? null
+      : imc < 18.5 ? 'Bajo peso'
+      : imc < 25   ? 'Normal'
+      : imc < 30   ? 'Sobrepeso'
+      : imc < 35   ? 'Obesidad I'
+      : imc < 40   ? 'Obesidad II'
+      : 'Obesidad III';
+
+    // %PP = (P.Usual – P.Actual) / P.Usual × 100
+    const pct_pp = pActual && pUsual ? +((pUsual - pActual) / pUsual * 100).toFixed(2) : null;
+    // %PI = P.Actual / P.Ideal × 100
+    const pct_pi = pActual && pIdeal ? +(pActual / pIdeal * 100).toFixed(2) : null;
+    // %PU = P.Actual / P.Usual × 100
+    const pct_pu = pActual && pUsual ? +(pActual / pUsual * 100).toFixed(2) : null;
+    // %P.Pre-Qx = P.Pre-Qx / P.Usual × 100
+    const pct_pqx = pPreQx && pUsual ? +(pPreQx / pUsual * 100).toFixed(2) : null;
+
+    // g/kg-p/día
+    const p_g_kg  = pRef ? +(totales.proteinas_g / pRef).toFixed(2) : null;
+    const g_g_kg  = pRef ? +(totales.grasas_g    / pRef).toFixed(2) : null;
+    const cho_g_kg = pRef ? +(totales.cho_g      / pRef).toFixed(2) : null;
+
+    return { imc, imcLabel, pct_pp, pct_pi, pct_pu, pct_pqx, p_g_kg, g_g_kg, cho_g_kg, pRef };
+  }, [
+    datos.peso_actual_kg, datos.peso_usual_kg, datos.peso_ideal_kg,
+    datos.peso_prequirurgico_kg, datos.talla_cm,
+    totales.proteinas_g, totales.grasas_g, totales.cho_g,
+  ]);
+
   const PASOS = ['Datos Personales', 'Antecedentes', 'Hábitos y TGI', 'Recordatorio 24h', 'Consumo Calórico', 'Examen Bioquímico'];
 
   // ── Validación por paso ──────────────────────────────────────────────────
@@ -106,10 +155,12 @@ export default function WizardNuevoPaciente({ onClose, onSuccess }) {
         errs.email = 'Email es obligatorio';
       else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(datos.email))
         errs.email = 'Email inválido';
-      // Cédula: solo números
-      if (datos.cedula && !/^\d+$/.test(datos.cedula))
+      // Cédula: obligatoria, solo números
+      if (!datos.cedula.trim())
+        errs.cedula = 'La cédula es obligatoria';
+      else if (!/^\d+$/.test(datos.cedula))
         errs.cedula = 'La cédula solo debe contener números';
-      if (datos.cedula && datos.cedula.length > 20)
+      else if (datos.cedula.length > 20)
         errs.cedula = 'Cédula máx. 20 dígitos';
       // Teléfono: solo números
       if (datos.telefono && !/^\d+$/.test(datos.telefono))
@@ -342,14 +393,22 @@ export default function WizardNuevoPaciente({ onClose, onSuccess }) {
         evacuaciones_v_dia: datos.evacuaciones_v_dia ? parseInt(datos.evacuaciones_v_dia) : null,
         actividad_fisica: datos.actividad_fisica,
         tg_dispepsia: datos.tg_dispepsia,
+        tg_dispepsia_causa: datos.tg_dispepsia_causa || '',
         tg_distension: datos.tg_distension,
+        tg_distension_causa: datos.tg_distension_causa || '',
         tg_aerofagia: datos.tg_aerofagia,
+        tg_aerofagia_causa: datos.tg_aerofagia_causa || '',
         tg_flatulencia: datos.tg_flatulencia,
         tg_meteorismo: datos.tg_meteorismo,
+        tg_meteorismo_causa: datos.tg_meteorismo_causa || '',
         tg_diarrea: datos.tg_diarrea,
+        tg_diarrea_causa: datos.tg_diarrea_causa || '',
         tg_nauseas: datos.tg_nauseas,
+        tg_nauseas_causa: datos.tg_nauseas_causa || '',
         tg_vomitos: datos.tg_vomitos,
+        tg_vomitos_causa: datos.tg_vomitos_causa || '',
         tg_rgef: datos.tg_rgef,
+        tg_rgef_causa: datos.tg_rgef_causa || '',
         estrenimiento: datos.estrenimiento || null,
         alergias_alimentarias: datos.alergias_alimentarias,
         trat_farmacologico: datos.trat_farmacologico,
@@ -433,6 +492,56 @@ export default function WizardNuevoPaciente({ onClose, onSuccess }) {
         }
       }
 
+      // 4. Guardar Recordatorio 24h si hay entradas con descripción
+      const entradasRecordatorio = (datos.recordatorio || [])
+        .filter(t => t.descripcion && t.descripcion.trim())
+        .map((t, idx) => ({
+          nombre:      t.nombre || '',
+          hora:        t.hora   || null,
+          descripcion: t.descripcion.trim(),
+          orden:       t.orden  ?? idx,
+        }));
+
+      if (entradasRecordatorio.length > 0) {
+        const recPayload = {
+          paciente: pacienteResp.id,
+          entradas: entradasRecordatorio,
+        };
+        const recResponse = await fetch('/api/recordatorios/', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+          body: JSON.stringify(recPayload),
+        });
+        if (!recResponse.ok) {
+          const errData = await recResponse.json().catch(() => ({}));
+          showToast(`Advertencia: recordatorio no guardado — ${parsearErrores(errData)}`, 'warning', 5000);
+        }
+      }
+
+      // 5. Guardar Registro de Progreso (Antropometría) si hay peso actual
+      if (datos.peso_actual_kg) {
+        const progresoPayload = {
+          paciente: pacienteResp.id,
+          fecha: datos.fecha_consulta || new Date().toISOString().split('T')[0],
+          peso_kg: parseFloat(datos.peso_actual_kg),
+          talla_cm: datos.talla_cm ? parseFloat(datos.talla_cm) : null,
+          cintura_cm: null,
+          cadera_cm: null,
+          notas: '',
+        };
+        const progResp = await fetch('/api/registros-progreso/', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+          body: JSON.stringify(progresoPayload),
+        });
+        if (!progResp.ok) {
+          const errData = await progResp.json().catch(() => ({}));
+          showToast(`Advertencia: registro de peso no guardado — ${parsearErrores(errData)}`, 'warning', 4000);
+        }
+      }
+
       onSuccess(pacienteResp.id);
     } catch (e) {
       const msg = e.message || 'Error inesperado al guardar';
@@ -488,7 +597,7 @@ export default function WizardNuevoPaciente({ onClose, onSuccess }) {
           {paso === 2 && <Paso2 datos={datos} set={set} errs={erroresPaso} />}
           {paso === 3 && <Paso3 datos={datos} set={set} errs={erroresPaso} />}
           {paso === 4 && <Paso4 datos={datos} set={set} />}
-          {paso === 5 && <Paso5 datos={datos} set={set} totales={totales} errs={erroresPaso} />}
+          {paso === 5 && <Paso5 datos={datos} set={set} totales={totales} calculos={calculos} errs={erroresPaso} />}
           {paso === 6 && <Paso6 datos={datos} set={set} errs={erroresPaso} />}
           {error && <div style={{ color: '#dc2626', fontSize: 13, marginTop: 8, padding: 8, background: '#fef2f2', borderRadius: 6 }}>{error}</div>}
         </div>
@@ -569,7 +678,7 @@ function Paso1({ datos, set, edad, onImportar, errs }) {
           <input value={datos.last_name} onChange={ev => set('last_name', ev.target.value)} style={{ ...inputStyle, borderColor: e.last_name ? '#dc2626' : undefined }} />
           <ErrMsg errs={e} campo="last_name" />
         </Campo>
-        <Campo label="Cédula">
+        <Campo label="Cédula" required>
           <input
             type="text" inputMode="numeric" pattern="\d*"
             value={datos.cedula}
@@ -775,16 +884,39 @@ function Paso3({ datos, set, errs }) {
       </div>
 
       <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: 13, color: '#374151' }}>Trastornos Gastrointestinales</p>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 12 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 12 }}>
         {TGI.map(({ key, label }) => (
-          <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
-            <input type="checkbox" checked={datos[key]} onChange={e => set(key, e.target.checked)} />
-            {label}
-          </label>
+          <div key={key}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={datos[key]} onChange={e => {
+                set(key, e.target.checked);
+                if (!e.target.checked) set(`${key}_causa`, '');
+              }} />
+              {label}
+            </label>
+            {datos[key] && (
+              <div style={{ marginLeft: 24, marginTop: 6, transition: 'all 0.2s' }}>
+                <input 
+                  type="text" 
+                  value={datos[`${key}_causa`] || ''} 
+                  onChange={e => set(`${key}_causa`, e.target.value)}
+                  style={inputStyle}
+                  placeholder="Especifica la causa..."
+                />
+              </div>
+            )}
+          </div>
         ))}
-      </div>
-      <div style={{ marginBottom: 10 }}>
-        <Campo label="Flatulencia (causa)"><input value={datos.tg_flatulencia} onChange={e => set('tg_flatulencia', e.target.value)} style={inputStyle} placeholder="Ej: Granos, legumbres..." /></Campo>
+        <div>
+          <Campo label="Flatulencia (describe)">
+            <input 
+              value={datos.tg_flatulencia} 
+              onChange={e => set('tg_flatulencia', e.target.value)} 
+              style={inputStyle} 
+              placeholder="Ej: Granos, legumbres..." 
+            />
+          </Campo>
+        </div>
       </div>
       <div style={{ marginBottom: 12 }}>
         <Campo label="Alergias / Intolerancias alimentarias"><input value={datos.alergias_alimentarias} onChange={e => set('alergias_alimentarias', e.target.value)} style={inputStyle} /></Campo>
@@ -1083,99 +1215,186 @@ function Paso6({ datos, set, errs }) {
   );
 }
 
-function Paso5({ datos, set, totales }) {
+// Celda de valor calculado (solo lectura, destacada)
+function CalcCell({ value, unit = '', color = '#16a34a', decimals = 2 }) {
+  const display = value !== null && value !== undefined
+    ? `${Number(value).toFixed(decimals)}${unit}`
+    : '—';
+  return (
+    <div style={{
+      padding: '6px 8px', borderRadius: 6, background: value !== null ? '#f0fdf4' : '#f9fafb',
+      border: `1px solid ${value !== null ? '#bbf7d0' : '#e5e7eb'}`,
+      fontSize: 13, fontWeight: 700, color: value !== null ? color : '#9ca3af',
+      textAlign: 'center', minWidth: 60,
+    }}>{display}</div>
+  );
+}
+
+function Paso5({ datos, set, totales, calculos, errs }) {
   const updateCC = (i, campo, valor) => {
     const nuevo = [...datos.consumo_calorico];
     nuevo[i] = { ...nuevo[i], [campo]: valor };
     set('consumo_calorico', nuevo);
   };
+
+  const pesoInputStyle = { width: '100%', padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' };
   const thStyle = { padding: '8px 6px', fontSize: 11, fontWeight: 700, color: '#374151', background: '#f3f4f6', textAlign: 'center', borderBottom: '2px solid #d1d5db' };
   const tdStyle = { padding: '4px 4px', borderBottom: '1px solid #f3f4f6' };
   const numInput = (val, onChange) => (
     <input type="number" step="0.01" value={val} onChange={e => onChange(e.target.value)}
       style={{ width: '100%', padding: '5px 4px', border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 12, textAlign: 'center', boxSizing: 'border-box' }} />
   );
+
+  const showGKg = calculos.pRef > 0;
+
   return (
     <div>
+      {/* ── Consumo Calórico ─────────────────────────────────────────────── */}
       <p style={{ margin: '0 0 12px', fontSize: 13, color: '#6b7280' }}>Ingresa los intercambios y macronutrientes por grupo de alimento.</p>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr>
-              <th style={{ ...thStyle, textAlign: 'left', minWidth: 130 }}>Alimento</th>
-              <th style={{ ...thStyle, minWidth: 60 }}>INT</th>
-              <th style={{ ...thStyle, minWidth: 70 }}>P (g)</th>
-              <th style={{ ...thStyle, minWidth: 70 }}>G (g)</th>
-              <th style={{ ...thStyle, minWidth: 70 }}>CHO (g)</th>
-              <th style={{ ...thStyle, minWidth: 70 }}>KCAL</th>
+              <th style={{ ...thStyle, textAlign: 'left', minWidth: 120 }}>Alimento</th>
+              <th style={{ ...thStyle, minWidth: 55 }}>INT</th>
+              <th style={{ ...thStyle, minWidth: 65 }}>P (g/día)</th>
+              <th style={{ ...thStyle, minWidth: 65 }}>G (g/día)</th>
+              <th style={{ ...thStyle, minWidth: 65 }}>CHO (g/día)</th>
+              <th style={{ ...thStyle, minWidth: 65 }}>KCAL/día</th>
+              {showGKg && <th style={{ ...thStyle, minWidth: 75, background: '#ecfdf5', color: '#15803d' }}>P g/kg-p/día</th>}
+              {showGKg && <th style={{ ...thStyle, minWidth: 75, background: '#ecfdf5', color: '#15803d' }}>G g/kg-p/día</th>}
+              {showGKg && <th style={{ ...thStyle, minWidth: 75, background: '#ecfdf5', color: '#15803d' }}>CHO g/kg-p/día</th>}
             </tr>
           </thead>
           <tbody>
-            {datos.consumo_calorico.map((item, i) => (
-              <tr key={item.grupo}>
-                <td style={{ ...tdStyle, fontWeight: 500, padding: '6px 8px', color: '#374151' }}>{item.nombre}</td>
-                <td style={tdStyle}>{numInput(item.intercambios, v => updateCC(i, 'intercambios', v))}</td>
-                <td style={tdStyle}>{numInput(item.proteinas_g, v => updateCC(i, 'proteinas_g', v))}</td>
-                <td style={tdStyle}>{numInput(item.grasas_g, v => updateCC(i, 'grasas_g', v))}</td>
-                <td style={tdStyle}>{numInput(item.cho_g, v => updateCC(i, 'cho_g', v))}</td>
-                <td style={tdStyle}>{numInput(item.kcal, v => updateCC(i, 'kcal', v))}</td>
-              </tr>
-            ))}
-            <tr style={{ background: '#f9fafb' }}>
-              <td style={{ ...tdStyle, fontWeight: 700, padding: '8px', color: '#111827' }}>TOTAL</td>
+            {datos.consumo_calorico.map((item, i) => {
+              const p  = parseFloat(item.proteinas_g) || 0;
+              const g  = parseFloat(item.grasas_g)    || 0;
+              const cho = parseFloat(item.cho_g)      || 0;
+              return (
+                <tr key={item.grupo}>
+                  <td style={{ ...tdStyle, fontWeight: 500, padding: '6px 8px', color: '#374151' }}>{item.nombre}</td>
+                  <td style={tdStyle}>{numInput(item.intercambios, v => updateCC(i, 'intercambios', v))}</td>
+                  <td style={tdStyle}>{numInput(item.proteinas_g,  v => updateCC(i, 'proteinas_g',  v))}</td>
+                  <td style={tdStyle}>{numInput(item.grasas_g,     v => updateCC(i, 'grasas_g',     v))}</td>
+                  <td style={tdStyle}>{numInput(item.cho_g,        v => updateCC(i, 'cho_g',        v))}</td>
+                  <td style={tdStyle}>{numInput(item.kcal,         v => updateCC(i, 'kcal',         v))}</td>
+                  {showGKg && <td style={{ ...tdStyle, textAlign: 'center', color: '#15803d', fontSize: 12 }}>{p ? (p / calculos.pRef).toFixed(2) : '—'}</td>}
+                  {showGKg && <td style={{ ...tdStyle, textAlign: 'center', color: '#15803d', fontSize: 12 }}>{g ? (g / calculos.pRef).toFixed(2) : '—'}</td>}
+                  {showGKg && <td style={{ ...tdStyle, textAlign: 'center', color: '#15803d', fontSize: 12 }}>{cho ? (cho / calculos.pRef).toFixed(2) : '—'}</td>}
+                </tr>
+              );
+            })}
+            {/* Fila TOTAL */}
+            <tr style={{ background: '#f0fdf4', fontWeight: 700 }}>
+              <td style={{ ...tdStyle, padding: '8px', color: '#111827' }}>TOTAL</td>
               {['intercambios','proteinas_g','grasas_g','cho_g','kcal'].map(k => (
-                <td key={k} style={{ ...tdStyle, textAlign: 'center', fontWeight: 700, color: '#16a34a' }}>{totales[k]}</td>
+                <td key={k} style={{ ...tdStyle, textAlign: 'center', color: '#16a34a' }}>{totales[k]}</td>
               ))}
+              {showGKg && <td style={{ ...tdStyle, textAlign: 'center', color: '#16a34a' }}>{calculos.p_g_kg ?? '—'}</td>}
+              {showGKg && <td style={{ ...tdStyle, textAlign: 'center', color: '#16a34a' }}>{calculos.g_g_kg ?? '—'}</td>}
+              {showGKg && <td style={{ ...tdStyle, textAlign: 'center', color: '#16a34a' }}>{calculos.cho_g_kg ?? '—'}</td>}
             </tr>
           </tbody>
         </table>
       </div>
+      {!showGKg && (
+        <p style={{ fontSize: 11, color: '#9ca3af', margin: '4px 0 0' }}>
+          💡 Ingresa el Peso Actual o Peso Usual en Evaluación Objetiva para ver g/kg-p/día
+        </p>
+      )}
 
       <div style={{ marginTop: 14 }}>
         <Campo label="Observaciones calóricas">
-          <input value={datos.observaciones_calorias} onChange={e => set('observaciones_calorias', e.target.value)} style={inputStyle} placeholder="Ej: Gasta 2768 Calorías/día" />
+          <input value={datos.observaciones_calorias} onChange={e => set('observaciones_calorias', e.target.value)} style={pesoInputStyle} placeholder="Ej: Gasta 2768 Calorías/día" />
         </Campo>
       </div>
 
-      {/* Evaluación Objetiva — campos validados según modelo backend
-          Pesos (max_digits=5, decimal_places=2): max 999.99 kg
-          circunferencia_muneca_cm (max_digits=5, decimal_places=2): max 999.99 cm
-          contextura: CharField(max_length=50) → select con valores válidos */}
+      {/* ── Evaluación Objetiva ───────────────────────────────────────────── */}
       <div style={{ marginTop: 16, border: '1px solid #e5e7eb', borderRadius: 8, padding: 12 }}>
-        <p style={{ margin: '0 0 10px', fontWeight: 700, fontSize: 13, color: '#374151' }}>Evaluación Objetiva — Pesos</p>
+        <p style={{ margin: '0 0 12px', fontWeight: 700, fontSize: 13, color: '#374151' }}>Evaluación Objetiva</p>
+
+        {/* Peso Actual y Talla → generan RegistroProgreso y activan cálculos */}
+        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 10, marginBottom: 12 }}>
+          <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 600, color: '#1d4ed8' }}>
+            📏 Medición actual (genera registro de progreso)
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: 10, alignItems: 'end' }}>
+            <Campo label="Peso Actual (kg)">
+              <input type="number" step="0.01" min="0" max="999.99" value={datos.peso_actual_kg}
+                onChange={ev => set('peso_actual_kg', ev.target.value)}
+                style={pesoInputStyle} placeholder="90.15" />
+            </Campo>
+            <Campo label="Talla (cm)">
+              <input type="number" step="0.1" min="0" max="300" value={datos.talla_cm}
+                onChange={ev => set('talla_cm', ev.target.value)}
+                style={pesoInputStyle} placeholder="177" />
+            </Campo>
+            {/* IMC calculado */}
+            <div>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 4 }}>IMC</label>
+              <div style={{ padding: '7px 10px', borderRadius: 6, background: calculos.imc ? '#f0fdf4' : '#f9fafb', border: '1px solid #e5e7eb', fontSize: 13, fontWeight: 700, color: calculos.imc ? '#15803d' : '#9ca3af' }}>
+                {calculos.imc ?? '—'} {calculos.imcLabel && <span style={{ fontSize: 10, fontWeight: 400 }}>({calculos.imcLabel})</span>}
+              </div>
+            </div>
+            {/* Peso ref */}
+            <div>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 4 }}>Peso referencia</label>
+              <div style={{ padding: '7px 10px', borderRadius: 6, background: '#f9fafb', border: '1px solid #e5e7eb', fontSize: 12, color: '#6b7280' }}>
+                {calculos.pRef ? `${calculos.pRef} kg` : '—'}
+                <span style={{ fontSize: 10, display: 'block', color: '#9ca3af' }}>{datos.peso_actual_kg ? 'Peso actual' : datos.peso_usual_kg ? 'Peso usual' : ''}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* %PP / %PI / %PU calculados */}
+        {(calculos.pct_pp !== null || calculos.pct_pi !== null || calculos.pct_pu !== null || calculos.pct_pqx !== null) && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 12 }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>%PP (Pérdida de Peso)</div>
+              <CalcCell value={calculos.pct_pp} unit="%" color={calculos.pct_pp < 0 ? '#dc2626' : calculos.pct_pp > 5 ? '#ea580c' : '#16a34a'} />
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>%PI (Peso Ideal)</div>
+              <CalcCell value={calculos.pct_pi} unit="%" color={calculos.pct_pi > 110 ? '#ea580c' : '#16a34a'} />
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>%PU (Peso Usual)</div>
+              <CalcCell value={calculos.pct_pu} unit="%" />
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>%P.Pre-Qx / P.Usual</div>
+              <CalcCell value={calculos.pct_pqx} unit="%" color="#7c3aed" />
+            </div>
+          </div>
+        )}
+
+        {/* Pesos de referencia */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
           {[
-            { label: 'Peso Máximo (kg)',      key: 'peso_maximo_kg' },
-            { label: 'Peso Mínimo (kg)',      key: 'peso_minimo_kg' },
-            { label: 'Peso Usual (kg)',       key: 'peso_usual_kg' },
-            { label: 'Peso Ideal (kg)',       key: 'peso_ideal_kg' },
-            { label: 'Peso Deseado (kg)',     key: 'peso_deseado_kg' },
-            { label: 'P. Pre-Quirúrgico (kg)', key: 'peso_prequirurgico_kg' },
-            { label: 'Circ. Muñeca (cm)',    key: 'circunferencia_muneca_cm' },
+            { label: 'Peso Máximo (kg)',        key: 'peso_maximo_kg' },
+            { label: 'Peso Mínimo (kg)',         key: 'peso_minimo_kg' },
+            { label: 'Peso Usual (kg)',          key: 'peso_usual_kg' },
+            { label: 'Peso Ideal (kg)',          key: 'peso_ideal_kg' },
+            { label: 'Peso Deseado (kg)',        key: 'peso_deseado_kg' },
+            { label: 'P. Pre-Quirúrgico (kg)',   key: 'peso_prequirurgico_kg' },
+            { label: 'Circ. Muñeca (cm)',        key: 'circunferencia_muneca_cm' },
           ].map(({ label, key }) => (
             <Campo key={key} label={label}>
               <input
-                type="number"
-                step="0.01"
-                min="0"
-                max="999.99"
+                type="number" step="0.01" min="0" max="999.99"
                 value={datos[key]}
                 onChange={ev => {
                   const v = ev.target.value;
-                  // Max 3 dígitos enteros + 2 decimales (modelo: max_digits=5, decimal_places=2)
                   if (v === '' || /^\d{0,3}(\.\d{0,2})?$/.test(v)) set(key, v);
                 }}
-                style={inputStyle}
-                placeholder="0.00"
+                style={pesoInputStyle} placeholder="0.00"
               />
             </Campo>
           ))}
           <Campo label="Contextura">
-            <select
-              value={datos.contextura}
-              onChange={ev => set('contextura', ev.target.value)}
-              style={inputStyle}
-            >
+            <select value={datos.contextura} onChange={ev => set('contextura', ev.target.value)} style={pesoInputStyle}>
               <option value="">— Seleccionar —</option>
               <option value="PEQUENA">Pequeña</option>
               <option value="MEDIANA">Mediana</option>

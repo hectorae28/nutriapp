@@ -52,6 +52,13 @@ class TiempoComidaTest(TestCase):
         self.assertEqual(resp.data[0]["nombre"], "Desayuno")
         self.assertEqual(resp.data[1]["nombre"], "Almuerzo")
 
+    def test_plan_pdf_descarga(self):
+        # usar el plan creado en setUp
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.get(f'/api/planes/{self.plan.id}/pdf/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp['Content-Type'], 'application/pdf')
+
     def test_paciente_no_puede_crear_tiempo_comida(self):
         self.client.force_authenticate(user=self.paciente.user)
         resp = self.client.post(
@@ -268,45 +275,6 @@ class DuplicarPlanTest(TestCase):
         self.assertEqual(racion_frutas_dup.grupo.nombre, "Frutas dup")
 
 
-class PlantillasTest(TestCase):
-    """Test de plantillas predefinidas"""
-
-    def setUp(self):
-        self.client = APIClient()
-        Group.objects.get_or_create(name="Nutricionista")
-        self.nutri = make_user("nutri_plant", group_name="Nutricionista")
-
-    def test_plantillas_retorna_lista(self):
-        """GET /api/planes/plantillas/ retorna 4 plantillas"""
-        self.client.force_authenticate(user=self.nutri)
-        resp = self.client.get("/api/planes/plantillas/")
-
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(len(resp.data), 4)
-
-        # Verificar estructura de la primera plantilla
-        plantilla = resp.data[0]
-        self.assertIn("id", plantilla)
-        self.assertIn("nombre", plantilla)
-        self.assertIn("tipo_dieta", plantilla)
-        self.assertIn("kcal_objetivo", plantilla)
-        self.assertIn("descripcion", plantilla)
-        self.assertIn("tiempos_comida", plantilla)
-
-        # Verificar que cada tiempo de comida tiene los campos necesarios
-        tiempo = plantilla["tiempos_comida"][0]
-        self.assertIn("nombre", tiempo)
-        self.assertIn("hora", tiempo)
-        self.assertIn("orden", tiempo)
-
-        # Verificar que las plantillas tienen los datos correctos
-        nombres_plantillas = [p["nombre"] for p in resp.data]
-        self.assertIn("Pérdida de peso", nombres_plantillas)
-        self.assertIn("Mantenimiento", nombres_plantillas)
-        self.assertIn("Ganancia muscular", nombres_plantillas)
-        self.assertIn("Diabético", nombres_plantillas)
-
-
 class CalcularRequerimientosTest(TestCase):
     """Test de cálculo de requerimientos nutricionales"""
 
@@ -390,6 +358,28 @@ class CalcularRequerimientosTest(TestCase):
 
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", resp.data)
+
+
+class Sprint15PlantillasRemovedTest(TestCase):
+    """Test de eliminación de plantillas — Sprint 15"""
+
+    def setUp(self):
+        self.client = APIClient()
+        Group.objects.get_or_create(name="Nutricionista")
+        self.nutricionista = make_user("nutri_s15", group_name="Nutricionista")
+
+    def test_plantillas_endpoint_no_existe(self):
+        """El endpoint /api/plantillas-alimenticias/ no debe existir como API endpoint"""
+        self.client.force_authenticate(user=self.nutricionista)
+        resp = self.client.get('/api/plantillas-alimenticias/')
+        # El catch-all devuelve 200 + HTML en lugar de 404
+        # Pero no es un endpoint JSON válido - verificamos que NO sea application/json
+        if resp.status_code == 200:
+            # Si devuelve 200, debe ser HTML (catch-all), no JSON
+            self.assertNotIn('application/json', resp.get('Content-Type', ''))
+        else:
+            # O debe devolver 404
+            self.assertEqual(resp.status_code, 404)
 
 
 class ReordenarTiemposTest(TestCase):

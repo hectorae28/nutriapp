@@ -11,12 +11,13 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.contrib.auth import get_user_model
 from django.db import transaction
 
-from .models import Paciente
-from .permissions import IsNutricionista, IsNutricionistaOrPaciente
-from .serializers import PacienteSerializer
+from .models import ConfiguracionSistema, Paciente
+from .permissions import IsNutricionista, IsNutricionistaOrPaciente, IsNutricionistaOrSecretario, IsNutricionistaOrPacienteOrSecretario
+from .serializers import ConfiguracionSistemaSerializer, PacienteSerializer
 from .excel_parser import parse_historia_nutricional
 from apps.expediente.models import ExpedienteClinico, ConsumoCaloricoItem, ExamenBioquimico, RegistroProgreso
 from apps.expediente.serializers import ExpedienteClinicoSerializer, ExamenBioquimicoSerializer
+from apps.expediente.pdf_historia import generar_pdf_historia
 
 # ── Mapeo de claves del parser → campos del modelo ExamenBioquimico ──────────
 # CORRECCIÓN: Ahora el parser devuelve UN SOLO diccionario con TODOS los campos
@@ -51,11 +52,11 @@ def _traducir_examen(raw_dict):
 
 class PacienteViewSet(viewsets.ModelViewSet):
     serializer_class = PacienteSerializer
-    permission_classes = [permissions.IsAuthenticated, IsNutricionistaOrPaciente]
+    permission_classes = [permissions.IsAuthenticated, IsNutricionistaOrPacienteOrSecretario]
 
     def get_queryset(self):
         user = self.request.user
-        if user.is_superuser or user.groups.filter(name__in=["Nutricionista"]).exists():
+        if user.is_superuser or user.groups.filter(name__in=["Nutricionista", "Secretario"]).exists():
             qs = Paciente.objects.select_related("user").all()
         else:
             # Paciente solo ve el suyo
@@ -72,14 +73,41 @@ class PacienteViewSet(viewsets.ModelViewSet):
         return qs
 
     def get_permissions(self):
-        if self.action in ["create", "destroy"]:
+        if self.action == "destroy":
             return [permissions.IsAuthenticated(), IsNutricionista()]
+        elif self.action in ["create", "update", "partial_update"]:
+            return [permissions.IsAuthenticated(), IsNutricionistaOrSecretario()]
         return super().get_permissions()
+
+    @action(detail=True, methods=['post'], url_path='toggle-activo', permission_classes=[IsNutricionistaOrSecretario])
+    def toggle_activo(self, request, pk=None):
+        """
+        Activa o desactiva un paciente (invierte el estado de user.is_active).
+        
+        POST /api/pacientes/{id}/toggle-activo/
+        
+        Returns:
+            {"is_active": bool, "mensaje": str}
+        """
+        paciente = self.get_object()
+        user = paciente.user
+        
+        # Toggle is_active
+        user.is_active = not user.is_active
+        user.save()
+        
+        estado = "activado" if user.is_active else "desactivado"
+        mensaje = f"Paciente {paciente} {estado} exitosamente"
+        
+        return Response({
+            "is_active": user.is_active,
+            "mensaje": mensaje
+        }, status=status.HTTP_200_OK)
 
 
 class PacienteExcelImportView(APIView):
     parser_classes = (MultiPartParser, FormParser)
-    permission_classes = [IsNutricionista]
+    permission_classes = [IsNutricionistaOrSecretario]
 
     def post(self, request, *args, **kwargs):
         if 'archivo' not in request.FILES:
@@ -137,6 +165,9 @@ class PacienteExcelImportView(APIView):
                 user_username = f'paciente_{cedula}'
 
                 # Try to find Paciente by cedula
+                from django.contrib.auth.models import Group
+                paciente_group, _ = Group.objects.get_or_create(name='Paciente')
+                
                 try:
                     paciente_instance = Paciente.objects.get(cedula=cedula)
                     user_instance = paciente_instance.user
@@ -145,11 +176,17 @@ class PacienteExcelImportView(APIView):
                     user_instance.last_name = paciente_data.get('apellido', user_instance.last_name)
                     user_instance.email = user_email
                     user_instance.save()
+                    # Asegurar que tenga el grupo Paciente
+                    if not user_instance.groups.filter(name='Paciente').exists():
+                        user_instance.groups.add(paciente_group)
 
                 except Paciente.DoesNotExist:
                     # If Paciente does not exist, check if User with same email/username exists
                     try:
                         user_instance = User.objects.get(Q(email=user_email) | Q(username=user_username))
+                        # Asegurar que el usuario existente tenga el grupo Paciente
+                        if not user_instance.groups.filter(name='Paciente').exists():
+                            user_instance.groups.add(paciente_group)
                     except User.DoesNotExist:
                         # Create User if not found
                         user_instance = User.objects.create_user(
@@ -161,8 +198,6 @@ class PacienteExcelImportView(APIView):
                         )
                         created_user = True
                         # Add user to 'Paciente' group
-                        from django.contrib.auth.models import Group
-                        paciente_group, _ = Group.objects.get_or_create(name='Paciente')
                         user_instance.groups.add(paciente_group)
                     
                     # Create Paciente
@@ -271,110 +306,70 @@ class PacienteExcelImportView(APIView):
 
 
 class PacienteExcelExportView(APIView):
-    """GET /api/pacientes/{id}/exportar-excel/ — genera .xlsx con historia nutricional del paciente."""
+    """GET /api/pacientes/{id}/exportar-excel/ — .xlsx completo con historia nutricional."""
 
-    permission_classes = [IsNutricionista]
+    permission_classes = [IsNutricionistaOrSecretario]
 
     def get(self, request, paciente_id, *args, **kwargs):
         try:
-            paciente = Paciente.objects.select_related("user").get(pk=paciente_id)
+            paciente = Paciente.objects.select_related('user', 'expediente').prefetch_related(
+                'expediente__consumo_calorico',
+                'registros_progreso',
+                'examenes_bioquimicos',
+                'recordatorios__entradas',
+                'planes__tiempos_comida__raciones__grupo'
+            ).get(pk=paciente_id)
+        except Paciente.DoesNotExist:
+            return Response({"error": "Paciente no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        from apps.users.excel_historia_exacto import generar_excel_historia
+        
+        excel_bytes = generar_excel_historia(paciente)
+        
+        nombre_paciente = paciente.user.get_full_name() or paciente.user.username
+        nombre_safe = nombre_paciente.replace(" ", "_")
+        filename = f"historia_{nombre_safe}_{paciente_id}.xls"
+        
+        response = HttpResponse(
+            excel_bytes,
+            content_type="application/vnd.ms-excel",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+
+class PacientePdfHistoriaView(APIView):
+    """GET /api/pacientes/{id}/exportar-pdf/ — PDF completo de la historia nutricional."""
+
+    permission_classes = [IsNutricionistaOrSecretario]
+
+    def get(self, request, paciente_id, *args, **kwargs):
+        try:
+            paciente = Paciente.objects.select_related("user").prefetch_related(
+                "expediente__consumo_calorico",
+                "registros_progreso",
+                "examenes_bioquimicos",
+                "recordatorios__entradas",
+                "planes__tiempos_comida__raciones__grupo",
+            ).get(pk=paciente_id)
         except Paciente.DoesNotExist:
             return Response({"error": "Paciente no encontrado"}, status=status.HTTP_404_NOT_FOUND)
 
         try:
-            import openpyxl
-            from openpyxl.styles import Font, PatternFill, Alignment
-        except ImportError:
-            return Response({"error": "openpyxl no disponible"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Historia Adultos"
-
-        # ── Encabezado ────────────────────────────────────────────────────────
-        header_font = Font(bold=True)
-        ws.append(["HISTORIA NUTRICIONAL"])
-        ws["A1"].font = Font(bold=True, size=14)
-
-        ws.append([])
-
-        # ── Datos Personales ──────────────────────────────────────────────────
-        ws.append(["DATOS PERSONALES"])
-        ws["A3"].font = header_font
-        ws.append(["Paciente", paciente.user.get_full_name() or paciente.user.username])
-        ws.append(["Cédula", paciente.cedula or ""])
-        ws.append(["Fecha Nac.", str(paciente.fecha_nacimiento or "")])
-        ws.append(["Sexo", paciente.get_sexo_display() if hasattr(paciente, 'get_sexo_display') else paciente.sexo or ""])
-        ws.append(["Teléfono", paciente.telefono or ""])
-        ws.append(["E-mail", paciente.user.email or ""])
-
-        ws.append([])
-
-        # ── Expediente Clínico ────────────────────────────────────────────────
-        try:
-            exp = ExpedienteClinico.objects.get(paciente=paciente)
-            ws.append(["EXPEDIENTE CLÍNICO"])
-            ws.cell(row=ws.max_row, column=1).font = header_font
-            ws.append(["Motivo consulta", exp.motivo_consulta or ""])
-            ws.append(["Antecedentes personales", exp.antecedentes_personales or ""])
-            ws.append(["Antecedentes familiares", exp.antecedentes_familiares or ""])
-            ws.append(["Peso máx (kg)", str(exp.peso_maximo_kg or "")])
-            ws.append(["Peso mín (kg)", str(exp.peso_minimo_kg or "")])
-            ws.append(["Peso usual (kg)", str(exp.peso_usual_kg or "")])
-            ws.append(["Peso ideal (kg)", str(exp.peso_ideal_kg or "")])
-            ws.append(["Peso deseado (kg)", str(exp.peso_deseado_kg or "")])
-            ws.append(["Contextura", exp.contextura or ""])
-            ws.append(["Observaciones calorías", exp.observaciones_calorias or ""])
-            ws.append([])
-
-            # Consumo calórico
-            items_cc = exp.consumo_calorico.all()
-            if items_cc.exists():
-                ws.append(["CONSUMO CALÓRICO DIARIO"])
-                ws.cell(row=ws.max_row, column=1).font = header_font
-                ws.append(["Grupo", "INT", "P (g)", "G (g)", "CHO (g)", "KCAL"])
-                for item in items_cc:
-                    ws.append([item.get_grupo_display(), str(item.intercambios),
-                                str(item.proteinas_g), str(item.grasas_g),
-                                str(item.cho_g), str(item.kcal)])
-                ws.append([])
-        except ExpedienteClinico.DoesNotExist:
-            pass
-
-        # ── Exámenes Bioquímicos ──────────────────────────────────────────────
-        examenes = ExamenBioquimico.objects.filter(paciente=paciente).order_by("-fecha")
-        if examenes.exists():
-            ws.append(["EXÁMENES BIOQUÍMICOS"])
-            ws.cell(row=ws.max_row, column=1).font = header_font
-            ws.append(["Fecha", "GLU", "COL", "HDL", "LDL", "TGC", "HBA1C", "TSH", "HB"])
-            for ex in examenes:
-                ws.append([
-                    str(ex.fecha),
-                    str(ex.glucosa or ""),
-                    str(ex.colesterol or ""),
-                    str(ex.hdl or ""),
-                    str(ex.ldl or ""),
-                    str(ex.trigliceridos or ""),
-                    str(ex.hemoglobina_glicosilada or ""),
-                    str(ex.tsh or ""),
-                    str(ex.hemoglobina or ""),
-                ])
-
-        # ── Ajustar ancho de columnas ─────────────────────────────────────────
-        for col in ws.columns:
-            max_len = max((len(str(cell.value or "")) for cell in col), default=10)
-            ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 50)
-
-        # ── Serializar y enviar ───────────────────────────────────────────────
-        buffer = io.BytesIO()
-        wb.save(buffer)
-        buffer.seek(0)
+            pdf_bytes = generar_pdf_historia(paciente)
+        except Exception as e:
+            return Response({"error": f"Error generando PDF: {e}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         nombre = (paciente.user.get_full_name() or paciente.user.username).replace(" ", "_")
-        filename = f"historia_{nombre}_{paciente_id}.xlsx"
-        response = HttpResponse(
-            buffer.getvalue(),
-            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        filename = f"historia_{nombre}_{paciente_id}.pdf"
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
+
+
+class ConfiguracionSistemaViewSet(viewsets.ModelViewSet):
+    """CRUD de configuración del sistema (solo nutricionista)."""
+    serializer_class = ConfiguracionSistemaSerializer
+    permission_classes = [permissions.IsAuthenticated, IsNutricionista]
+    queryset = ConfiguracionSistema.objects.all()
+    lookup_field = 'clave'  # Permitir buscar por clave en lugar de id

@@ -1,7 +1,6 @@
 import { Sun, Moon, Leaf } from 'lucide-react';
 import { useTheme, useIsMobile } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
-import NotificationBell from './NotificationBell';
 
 export default function TopHeader({ title, subtitle, action }) {
   const { dark, toggle } = useTheme();
@@ -42,7 +41,6 @@ export default function TopHeader({ title, subtitle, action }) {
       </div>
       <div className="na-topbar-right">
         {action && action}
-        <NotificationBell />
         <div className="na-patient-pill">
           <div className="na-avatar-sm">
             {initials}

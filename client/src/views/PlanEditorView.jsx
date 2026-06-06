@@ -11,16 +11,15 @@ import {
   Check,
   Minus,
   Clock,
-  LayoutTemplate,
   Droplets,
   Flame,
   Activity,
-  ChevronRight,
 } from 'lucide-react';
 import TopHeader from '../components/TopHeader';
 import { ProgressRing, Badge } from '../components/SharedComponents';
 import { usePaciente } from '../contexts/AppContext';
 import { useToast } from '../contexts/ToastContext';
+import { useCatalogoStore, usePlanesStore } from '../stores';
 import { planesApi, tiemposApi, racionesApi, calcularRequerimientos } from '../api/planes';
 import { getGrupoStyle } from '../constants/grupoStyles';
 import AlimentoTagsSection from '../components/AlimentoTagsSection';
@@ -68,6 +67,7 @@ export default function PlanEditorView() {
   const location = useLocation();
   const { pacienteSeleccionado } = usePaciente();
   const { addToast } = useToast();
+  const { invalidate: invalidatePlanes } = usePlanesStore();
 
   const queryParams = new URLSearchParams(location.search);
   const planId = queryParams.get('planId');
@@ -90,14 +90,11 @@ export default function PlanEditorView() {
   const [hidrico, setHidrico] = useState('');
   const [fibra, setFibra] = useState('');
 
-  // plantilla aplicada (para mostrar badge)
-  const [plantillaAplicada, setPlantillaAplicada] = useState(null);
-
   // tiempos de comida: [{ id, nombre, hora, orden, raciones:[{id?, grupo_id, grupo_nombre, kcal_racion, cantidad}] }]
   const [tiemposComida, setTiemposComida] = useState([]);
 
-  // catálogo de grupos de alimento (con alimentos anidados para el buscador)
-  const [grupos, setGrupos] = useState([]);
+  // catálogo de grupos de alimento desde Zustand
+  const { grupos, fetchCatalogo } = useCatalogoStore();
 
   // tags de alimentos específicos del plan
   // [{ id?, alimento_id, alimento_nombre, alimento_grupo, tag, nota }]
@@ -105,7 +102,6 @@ export default function PlanEditorView() {
 
   // modals
   const [showCalculadora, setShowCalculadora] = useState(false);
-  const [showPlantillas, setShowPlantillas] = useState(false);
   const [addGrupoModal, setAddGrupoModal] = useState(null); // { tiempoIdx }
 
   // edición inline de nombre
@@ -114,21 +110,10 @@ export default function PlanEditorView() {
 
   // ── carga inicial ──────────────────────────────────────────────────────────
 
-  // cargar grupos con alimentos anidados para el buscador de tags
+  // cargar catálogo de grupos con alimentos desde Zustand
   useEffect(() => {
-    // /api/grupos-alimento/ ya devuelve alimentos nested según el serializer
-    planesApi
-      .grupos()
-      .then((data) => setGrupos(Array.isArray(data) ? data : data.results || []))
-      .catch(() => setGrupos([]));
-  }, []);
-
-  // Auto-abrir selector de plantillas al crear un plan nuevo
-  useEffect(() => {
-    if (isNuevo) {
-      setShowPlantillas(true);
-    }
-  }, [isNuevo]);
+    fetchCatalogo();
+  }, [fetchCatalogo]);
 
   // cargar plan existente
   useEffect(() => {
@@ -184,54 +169,6 @@ export default function PlanEditorView() {
       })
       .finally(() => setLoading(false));
   }, [planId, navigate]);
-
-  // ── aplicar plantilla ──────────────────────────────────────────────────────
-
-  const aplicarPlantilla = (plantilla) => {
-    setTipoDieta(plantilla.tipo_dieta || 'normocalorico');
-    setKcalObjetivo(plantilla.kcal_objetivo ? String(plantilla.kcal_objetivo) : '');
-    setPctProteinas(plantilla.pct_proteinas ? String(plantilla.pct_proteinas) : '');
-    setPctGrasas(plantilla.pct_grasas ? String(plantilla.pct_grasas) : '');
-    setPctCarbohidratos(plantilla.pct_carbohidratos ? String(plantilla.pct_carbohidratos) : '');
-    setHidrico(plantilla.requerimiento_hidrico_ml ? String(plantilla.requerimiento_hidrico_ml) : '');
-    setFibra(plantilla.fibra_g ? String(plantilla.fibra_g) : '');
-    setObservaciones(plantilla.descripcion || '');
-    setPlantillaAplicada(plantilla);
-
-    if (plantilla.tiempos_comida?.length > 0) {
-      const nuevos = plantilla.tiempos_comida.map((t, i) => ({
-        id: `temp-${Date.now()}-${i}`,
-        nombre: t.nombre || '',
-        hora: t.hora || '',
-        orden: i,
-        // copiar raciones de la plantilla si existen
-        raciones: (t.raciones || []).map((r) => ({
-          id: null,
-          grupo_id: r.grupo,
-          grupo_nombre: r.grupo_nombre || '',
-          kcal_racion: parseFloat(r.kcal_racion || 0),
-          cantidad: parseFloat(r.cantidad || 1),
-          tag: r.tag || '',
-        })),
-      }));
-      setTiemposComida(nuevos);
-    }
-    // copiar alimento_tags de la plantilla si existen
-    if (plantilla.alimento_tags?.length > 0) {
-      setAlimentoTags(
-        plantilla.alimento_tags.map((t) => ({
-          id: null, // sin ID de BD, se crearán al guardar
-          alimento_id: t.alimento,
-          alimento_nombre: t.alimento_nombre,
-          alimento_grupo: t.alimento_grupo,
-          tag: t.tag,
-          nota: t.nota || '',
-        }))
-      );
-    }
-    setShowPlantillas(false);
-    addToast({ message: `Plantilla "${plantilla.nombre}" aplicada. Ajústala según el caso.`, type: 'success' });
-  };
 
   // ── tiempos de comida ──────────────────────────────────────────────────────
 
@@ -435,6 +372,10 @@ export default function PlanEditorView() {
       }
 
       addToast({ message: 'Plan guardado exitosamente', type: 'success' });
+      // Invalidar cache de planes para este paciente
+      if (pacienteSeleccionado?.id) {
+        invalidatePlanes(pacienteSeleccionado.id);
+      }
       navigate(-1);
     } catch (err) {
       console.error('Error guardando plan:', err);
@@ -493,40 +434,7 @@ export default function PlanEditorView() {
           <ArrowLeft size={15} /> Volver
         </button>
 
-        {/* ── banner plantilla aplicada ── */}
-        {plantillaAplicada && (
-          <div
-            style={{
-              background: 'linear-gradient(135deg, var(--accent-green-light, #e8f5e9) 0%, var(--bg-surface-2) 100%)',
-              border: '1px solid var(--accent-green)',
-              borderRadius: 'var(--radius-lg)',
-              padding: '12px 16px',
-              marginBottom: 16,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 12,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 22 }}>{plantillaAplicada.emoji || '📋'}</span>
-              <div>
-                <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-green)', margin: 0 }}>
-                  Plantilla aplicada: {plantillaAplicada.nombre}
-                </p>
-                <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: 0 }}>
-                  Puedes modificar todos los valores según las necesidades del paciente
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => setShowPlantillas(true)}
-              style={{ ...btnSecondary, fontSize: 11, whiteSpace: 'nowrap' }}
-            >
-              <LayoutTemplate size={12} /> Cambiar plantilla
-            </button>
-          </div>
-        )}
+
 
         {/* ── card datos del plan ── */}
         <div
@@ -559,9 +467,6 @@ export default function PlanEditorView() {
               <ClipboardList size={16} /> Datos del Plan
             </h3>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button style={btnSecondary} onClick={() => setShowPlantillas(true)}>
-                <LayoutTemplate size={13} /> Plantilla
-              </button>
               <button style={btnSecondary} onClick={() => setShowCalculadora(true)}>
                 <Calculator size={13} /> Calcular
               </button>
@@ -837,7 +742,7 @@ export default function PlanEditorView() {
                 fontSize: 13,
               }}
             >
-              No hay tiempos de comida. Agrega uno abajo o selecciona una plantilla.
+              No hay tiempos de comida. Agrega uno con el botón de abajo.
             </div>
           )}
 
@@ -1065,18 +970,6 @@ export default function PlanEditorView() {
         />
       )}
 
-      {showPlantillas && (
-        <PlantillasModal
-          isNuevo={isNuevo && !plantillaAplicada}
-          onClose={() => setShowPlantillas(false)}
-          onSeleccionar={aplicarPlantilla}
-          onEmpezarEnBlanco={() => {
-            setPlantillaAplicada(null);
-            setShowPlantillas(false);
-          }}
-        />
-      )}
-
       {addGrupoModal && (
         <AddGrupoModal
           grupos={grupos}
@@ -1276,271 +1169,6 @@ function CalculadoraModal({ onClose, onUsar }) {
           </div>
         </div>
       )}
-    </ModalWrapper>
-  );
-}
-
-// ─── Modal Plantillas ────────────────────────────────────────────────────────
-
-function PlantillasModal({ onClose, onSeleccionar, onEmpezarEnBlanco, isNuevo }) {
-  const [plantillas, setPlantillas] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [seleccionada, setSeleccionada] = useState(null);
-
-  useEffect(() => {
-    planesApi
-      .plantillas()
-      .then((data) => setPlantillas(Array.isArray(data) ? data : data.results || []))
-      .catch(() => setPlantillas([]))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const coloresTipo = {
-    hipocalorico: { bg: '#fff3e0', border: '#ff9800', text: '#e65100' },
-    normocalorico: { bg: '#e8f5e9', border: '#4caf50', text: '#2e7d32' },
-    hipercalorico: { bg: '#e3f2fd', border: '#2196f3', text: '#1565c0' },
-    diabetico: { bg: '#fce4ec', border: '#e91e63', text: '#880e4f' },
-    otro: { bg: '#f3e5f5', border: '#9c27b0', text: '#4a148c' },
-  };
-
-  return (
-    <ModalWrapper onClose={isNuevo ? undefined : onClose} maxWidth={680}>
-      <ModalHeader
-        icon={<LayoutTemplate size={20} />}
-        title={isNuevo ? 'Selecciona una plantilla base' : 'Plantillas de Planes'}
-        onClose={isNuevo ? undefined : onClose}
-      />
-
-      {isNuevo && (
-        <div
-          style={{
-            background: 'var(--bg-surface-2)',
-            borderRadius: 10,
-            padding: '10px 14px',
-            marginBottom: 16,
-            fontSize: 12,
-            color: 'var(--text-secondary)',
-            borderLeft: '3px solid var(--accent-green)',
-          }}
-        >
-          💡 Selecciona una plantilla para precargar el plan con valores recomendados. Podrás ajustar todo según las necesidades específicas del paciente.
-        </div>
-      )}
-
-      {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              border: '3px solid var(--accent-green)',
-              borderTopColor: 'transparent',
-              borderRadius: '50%',
-              animation: 'spin 0.8s linear infinite',
-            }}
-          />
-        </div>
-      ) : plantillas.length === 0 ? (
-        <p style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: 40 }}>
-          No hay plantillas disponibles
-        </p>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {plantillas.map((p) => {
-            const colores = coloresTipo[p.tipo_dieta] || coloresTipo.otro;
-            const estaSeleccionada = seleccionada?.id === p.id;
-            return (
-              <div
-                key={p.id}
-                onClick={() => setSeleccionada(estaSeleccionada ? null : p)}
-                style={{
-                  background: estaSeleccionada ? colores.bg : 'var(--bg-surface-2)',
-                  border: `2px solid ${estaSeleccionada ? colores.border : 'var(--border)'}`,
-                  borderRadius: 12,
-                  padding: '14px 16px',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s',
-                }}
-                onMouseEnter={(e) => {
-                  if (!estaSeleccionada) {
-                    e.currentTarget.style.borderColor = colores.border;
-                    e.currentTarget.style.boxShadow = 'var(--shadow-md)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!estaSeleccionada) {
-                    e.currentTarget.style.borderColor = 'var(--border)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }
-                }}
-              >
-                {/* cabecera */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 22 }}>{p.emoji || '📋'}</span>
-                    <div>
-                      <strong style={{ fontSize: 14, color: 'var(--text-primary)' }}>{p.nombre}</strong>
-                      <span
-                        style={{
-                          marginLeft: 8,
-                          fontSize: 10,
-                          fontWeight: 700,
-                          background: colores.bg,
-                          color: colores.text,
-                          border: `1px solid ${colores.border}`,
-                          padding: '1px 6px',
-                          borderRadius: 4,
-                        }}
-                      >
-                        {p.tipo_dieta}
-                      </span>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', align: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent-green)' }}>
-                      {p.kcal_objetivo} kcal
-                    </span>
-                    {estaSeleccionada && (
-                      <Check size={18} style={{ color: colores.border }} />
-                    )}
-                  </div>
-                </div>
-
-                {/* descripción */}
-                {p.descripcion && (
-                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 8px 0' }}>
-                    {p.descripcion}
-                  </p>
-                )}
-
-                {/* detalles cuando está seleccionada */}
-                {estaSeleccionada && (
-                  <div
-                    style={{
-                      marginTop: 10,
-                      paddingTop: 10,
-                      borderTop: `1px solid ${colores.border}`,
-                      display: 'grid',
-                      gridTemplateColumns: '1fr 1fr',
-                      gap: 8,
-                    }}
-                  >
-                    {/* macros */}
-                    <div>
-                      <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', margin: '0 0 4px 0' }}>
-                        Macronutrientes
-                      </p>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {p.pct_proteinas && (
-                          <span style={{ fontSize: 11, background: '#fff3f0', color: '#e17c5a', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
-                            P: {p.pct_proteinas}%
-                          </span>
-                        )}
-                        {p.pct_grasas && (
-                          <span style={{ fontSize: 11, background: '#fffde7', color: '#c89b00', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
-                            G: {p.pct_grasas}%
-                          </span>
-                        )}
-                        {p.pct_carbohidratos && (
-                          <span style={{ fontSize: 11, background: '#f1f8e9', color: '#558b2f', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
-                            CHO: {p.pct_carbohidratos}%
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {/* otros datos */}
-                    <div>
-                      <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', margin: '0 0 4px 0' }}>
-                        Otros parámetros
-                      </p>
-                      <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                        {p.requerimiento_hidrico_ml && <div>💧 {p.requerimiento_hidrico_ml} ml/día</div>}
-                        {p.fibra_g && <div>🌾 Fibra: {p.fibra_g} g/día</div>}
-                      </div>
-                    </div>
-                    {/* tiempos de comida */}
-                    <div style={{ gridColumn: '1 / -1' }}>
-                      <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', margin: '0 0 4px 0' }}>
-                        {p.tiempos_comida?.length} tiempos de comida
-                      </p>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {p.tiempos_comida?.map((t, i) => (
-                          <span
-                            key={i}
-                            style={{
-                              fontSize: 11,
-                              background: 'var(--bg-surface)',
-                              border: '1px solid var(--border)',
-                              padding: '2px 8px',
-                              borderRadius: 20,
-                              color: 'var(--text-secondary)',
-                            }}
-                          >
-                            🕐 {t.hora} {t.nombre}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    {/* objetivos */}
-                    {p.objetivos?.length > 0 && (
-                      <div style={{ gridColumn: '1 / -1' }}>
-                        <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', margin: '0 0 4px 0' }}>
-                          Objetivos
-                        </p>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          {p.objetivos.map((obj, i) => (
-                            <span
-                              key={i}
-                              style={{
-                                fontSize: 11,
-                                background: colores.bg,
-                                color: colores.text,
-                                padding: '2px 8px',
-                                borderRadius: 20,
-                              }}
-                            >
-                              ✓ {obj}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* botones de acción */}
-      <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
-        <button
-          onClick={onEmpezarEnBlanco}
-          style={{ ...btnSecondary, padding: '10px 16px', fontSize: 13 }}
-        >
-          Empezar en blanco
-        </button>
-        <button
-          onClick={() => seleccionada && onSeleccionar(seleccionada)}
-          disabled={!seleccionada}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            background: seleccionada ? 'var(--accent-green)' : 'var(--border)',
-            color: seleccionada ? '#fff' : 'var(--text-tertiary)',
-            border: 'none',
-            borderRadius: 8,
-            padding: '10px 20px',
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: seleccionada ? 'pointer' : 'not-allowed',
-          }}
-        >
-          Usar esta plantilla <ChevronRight size={15} />
-        </button>
-      </div>
     </ModalWrapper>
   );
 }

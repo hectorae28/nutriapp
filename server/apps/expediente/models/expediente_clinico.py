@@ -45,7 +45,7 @@ class ExpedienteClinico(models.Model):
     tg_distension_causa = models.CharField(max_length=255, blank=True, default='')
     tg_aerofagia = models.BooleanField(default=False)
     tg_aerofagia_causa = models.CharField(max_length=255, blank=True, default='')
-    tg_flatulencia = models.CharField(max_length=100, blank=True)
+    tg_flatulencia = models.CharField(max_length=255, blank=True)
     tg_meteorismo = models.BooleanField(default=False)
     tg_meteorismo_causa = models.CharField(max_length=255, blank=True, default='')
     tg_diarrea = models.BooleanField(default=False)

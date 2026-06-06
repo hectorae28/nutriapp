@@ -1,6 +1,6 @@
 /**
  * AlimentoTagsSection — sección reutilizable para etiquetar alimentos específicos.
- * Se usa tanto en PlanEditorView como en PlantillaEditorView.
+ * Se usa en PlanEditorView para marcar indicaciones especiales por alimento.
  *
  * Props:
  *   tags        — array de tags actuales [{ id?, alimento_id, alimento_nombre, alimento_grupo, tag, nota }]

@@ -19,123 +19,22 @@ export const planesApi = {
       headers: { 'X-CSRFToken': getCookie('csrftoken') },
       credentials: 'include',
     }).then((r) => r.json()),
-  // Plantillas desde BD (via endpoint /planes/plantillas/ que ahora lee la BD)
-  plantillas: () =>
-    fetch(`${BASE}/planes/plantillas/`, { credentials: 'include' }).then((r) => r.json()),
   tiemposComida: (planId) => api.get(`/tiempos-comida/?plan=${planId}`),
   grupos: () => api.get('/grupos-alimento/'),
   raciones: (tiempoComidaId) => api.get(`/raciones/?tiempo_comida=${tiempoComidaId}`),
-};
-
-// ─── CRUD de Plantillas Alimenticias ─────────────────────────────────────────
-
-export const plantillasApi = {
-  list: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return fetch(`${BASE}/plantillas-alimenticias/${q ? '?' + q : ''}`, {
+  enviarPlanPorEmail: (planId) => api.post(`/planes/${planId}/enviar-email/`),
+  descargarPdfPlan: async (planId) => {
+    const res = await fetch(`${BASE}/planes/${planId}/pdf/`, {
       credentials: 'include',
-    }).then((r) => r.json());
-  },
-
-  get: (id) =>
-    fetch(`${BASE}/plantillas-alimenticias/${id}/`, { credentials: 'include' }).then((r) =>
-      r.json()
-    ),
-
-  create: (data) =>
-    fetch(`${BASE}/plantillas-alimenticias/`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-      credentials: 'include',
-      body: JSON.stringify(data),
-    }).then((r) => {
-      if (!r.ok) return r.json().then((e) => Promise.reject(e));
-      return r.json();
-    }),
-
-  update: (id, data) =>
-    fetch(`${BASE}/plantillas-alimenticias/${id}/`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-      credentials: 'include',
-      body: JSON.stringify(data),
-    }).then((r) => {
-      if (!r.ok) return r.json().then((e) => Promise.reject(e));
-      return r.json();
-    }),
-
-  delete: (id) =>
-    fetch(`${BASE}/plantillas-alimenticias/${id}/`, {
-      method: 'DELETE',
-      headers: { 'X-CSRFToken': getCookie('csrftoken') },
-      credentials: 'include',
-    }).then((r) => {
-      if (!r.ok) return r.json().then((e) => Promise.reject(e));
-      return null;
-    }),
-
-  duplicar: (id) =>
-    fetch(`${BASE}/plantillas-alimenticias/${id}/duplicar/`, {
-      method: 'POST',
-      headers: { 'X-CSRFToken': getCookie('csrftoken') },
-      credentials: 'include',
-    }).then((r) => r.json()),
-
-  // Raciones de plantilla
-  raciones: {
-    list: (tiempoComidaId) =>
-      fetch(`${BASE}/raciones-plantilla/?tiempo_comida=${tiempoComidaId}`, {
-        credentials: 'include',
-      }).then((r) => r.json()),
-
-    create: (data) =>
-      fetch(`${BASE}/raciones-plantilla/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-        credentials: 'include',
-        body: JSON.stringify(data),
-      }).then((r) => r.json()),
-
-    update: (id, data) =>
-      fetch(`${BASE}/raciones-plantilla/${id}/`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-        credentials: 'include',
-        body: JSON.stringify(data),
-      }).then((r) => r.json()),
-
-    delete: (id) =>
-      fetch(`${BASE}/raciones-plantilla/${id}/`, {
-        method: 'DELETE',
-        headers: { 'X-CSRFToken': getCookie('csrftoken') },
-        credentials: 'include',
-      }),
-  },
-
-  // Tiempos de comida de plantilla
-  tiempos: {
-    create: (data) =>
-      fetch(`${BASE}/tiempos-comida-plantilla/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-        credentials: 'include',
-        body: JSON.stringify(data),
-      }).then((r) => r.json()),
-
-    update: (id, data) =>
-      fetch(`${BASE}/tiempos-comida-plantilla/${id}/`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-        credentials: 'include',
-        body: JSON.stringify(data),
-      }).then((r) => r.json()),
-
-    delete: (id) =>
-      fetch(`${BASE}/tiempos-comida-plantilla/${id}/`, {
-        method: 'DELETE',
-        headers: { 'X-CSRFToken': getCookie('csrftoken') },
-        credentials: 'include',
-      }),
+    });
+    if (!res.ok) throw new Error('Error al descargar PDF');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `plan_alimenticio_${planId}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
   },
 };
 
@@ -248,7 +147,6 @@ const alimentoTagApi = (endpoint) => ({
 });
 
 export const alimentoTagsPlanApi = alimentoTagApi('alimento-tags-plan');
-export const alimentoTagsPlantillaApi = alimentoTagApi('alimento-tags-plantilla');
 
 export const calcularRequerimientos = (data) =>
   fetch(`${BASE}/calcular-requerimientos/`, {

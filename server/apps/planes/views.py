@@ -1,17 +1,21 @@
+from django.conf import settings
+from django.core.mail import EmailMessage
+from django.db import transaction
+from django.http import HttpResponse
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.parsers import MultiPartParser, FormParser
 
 from apps.users.permissions import IsNutricionista, IsNutricionistaOrPaciente
 
-from .models import AlimentoTagPlan, AlimentoTagPlantilla, PlanAlimenticio, PlantillaAlimenticia, RacionPlan, RacionPlantilla, TiempoComida, TiempoComidaPlantilla
+from .models import AlimentoTagPlan, PlanAlimenticio, RacionPlan, TiempoComida
+from .pdf_plan import generar_pdf_plan
 from .serializers import (
     AlimentoTagPlanSerializer,
-    AlimentoTagPlantillaSerializer,
     PlanAlimenticioSerializer,
-    PlantillaAlimenticiaSerializer,
     RacionPlanSerializer,
-    RacionPlantillaSerializer,
     TiempoComidaSerializer,
 )
 
@@ -47,7 +51,6 @@ class PlanAlimenticioViewSet(viewsets.ModelViewSet):
             "partial_update",
             "destroy",
             "duplicar",
-            "plantillas",
         ]:
             return [permissions.IsAuthenticated(), IsNutricionista()]
         return super().get_permissions()
@@ -98,150 +101,53 @@ class PlanAlimenticioViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(plan_nuevo)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-    @action(detail=False, methods=["get"], url_path="plantillas")
-    def plantillas(self, request):
-        """Retorna plantillas activas desde la base de datos"""
-        qs = PlantillaAlimenticia.objects.prefetch_related(
-            "tiempos_comida__raciones__grupo",
-            "alimento_tags__alimento__grupo",
-        ).filter(activa=True)
-        serializer = PlantillaAlimenticiaSerializer(qs, many=True)
-        return Response(serializer.data)
+    @action(detail=True, methods=['get'], url_path='pdf')
+    def descargar_pdf(self, request, pk=None):
+        """Descarga el plan alimenticio como PDF"""
+        plan = self.get_object()
+        pdf_bytes = generar_pdf_plan(plan)
+        
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="plan_{plan.id}.pdf"'
+        return response
 
-    @action(detail=False, methods=["get"], url_path="plantillas_legacy")
-    def plantillas_legacy(self, request):
-        """[LEGACY] Plantillas hardcodeadas — usar /plantillas/ en su lugar"""
-        plantillas = [
-            {
-                "id": 1,
-                "nombre": "Pérdida de peso",
-                "emoji": "🔥",
-                "tipo_dieta": "hipocalorico",
-                "kcal_objetivo": 1400,
-                "pct_proteinas": 25,
-                "pct_grasas": 30,
-                "pct_carbohidratos": 45,
-                "requerimiento_hidrico_ml": 2000,
-                "fibra_g": 25,
-                "descripcion": "Plan hipocalórico para pérdida de peso gradual y saludable. Alto en proteínas para preservar masa muscular.",
-                "objetivos": ["Déficit calórico moderado", "Alta saciedad", "Preservar músculo"],
-                "tiempos_comida": [
-                    {"nombre": "Desayuno", "hora": "07:00", "orden": 1},
-                    {"nombre": "Merienda AM", "hora": "10:00", "orden": 2},
-                    {"nombre": "Almuerzo", "hora": "13:00", "orden": 3},
-                    {"nombre": "Merienda PM", "hora": "16:00", "orden": 4},
-                    {"nombre": "Cena", "hora": "19:00", "orden": 5},
-                ],
-            },
-            {
-                "id": 2,
-                "nombre": "Mantenimiento",
-                "emoji": "⚖️",
-                "tipo_dieta": "normocalorico",
-                "kcal_objetivo": 2000,
-                "pct_proteinas": 20,
-                "pct_grasas": 30,
-                "pct_carbohidratos": 50,
-                "requerimiento_hidrico_ml": 2500,
-                "fibra_g": 30,
-                "descripcion": "Plan normocalórico equilibrado para mantener el peso y la salud general.",
-                "objetivos": ["Balance energético", "Alimentación equilibrada", "Salud general"],
-                "tiempos_comida": [
-                    {"nombre": "Desayuno", "hora": "07:00", "orden": 1},
-                    {"nombre": "Almuerzo", "hora": "13:00", "orden": 2},
-                    {"nombre": "Merienda", "hora": "16:00", "orden": 3},
-                    {"nombre": "Cena", "hora": "19:00", "orden": 4},
-                ],
-            },
-            {
-                "id": 3,
-                "nombre": "Ganancia muscular",
-                "emoji": "💪",
-                "tipo_dieta": "hipercalorico",
-                "kcal_objetivo": 2800,
-                "pct_proteinas": 30,
-                "pct_grasas": 25,
-                "pct_carbohidratos": 45,
-                "requerimiento_hidrico_ml": 3000,
-                "fibra_g": 35,
-                "descripcion": "Plan hipercalórico orientado a la ganancia de masa muscular con distribución estratégica pre y post entreno.",
-                "objetivos": ["Superávit calórico", "Alta ingesta proteica", "Soporte al entrenamiento"],
-                "tiempos_comida": [
-                    {"nombre": "Desayuno", "hora": "07:00", "orden": 1},
-                    {"nombre": "Pre-entreno", "hora": "10:00", "orden": 2},
-                    {"nombre": "Almuerzo", "hora": "13:00", "orden": 3},
-                    {"nombre": "Post-entreno", "hora": "16:00", "orden": 4},
-                    {"nombre": "Cena", "hora": "19:00", "orden": 5},
-                    {"nombre": "Snack Nocturno", "hora": "21:00", "orden": 6},
-                ],
-            },
-            {
-                "id": 4,
-                "nombre": "Control Diabético",
-                "emoji": "🩺",
-                "tipo_dieta": "diabetico",
-                "kcal_objetivo": 1600,
-                "pct_proteinas": 20,
-                "pct_grasas": 35,
-                "pct_carbohidratos": 45,
-                "requerimiento_hidrico_ml": 2000,
-                "fibra_g": 40,
-                "cho_simples_g": 25,
-                "descripcion": "Plan especializado para el control glucémico. Bajo en carbohidratos simples, alto en fibra y comidas frecuentes.",
-                "objetivos": ["Control glucémico", "Comidas frecuentes", "Bajo índice glucémico"],
-                "tiempos_comida": [
-                    {"nombre": "Desayuno", "hora": "07:00", "orden": 1},
-                    {"nombre": "Merienda AM", "hora": "10:00", "orden": 2},
-                    {"nombre": "Almuerzo", "hora": "13:00", "orden": 3},
-                    {"nombre": "Merienda PM", "hora": "16:00", "orden": 4},
-                    {"nombre": "Cena", "hora": "19:00", "orden": 5},
-                ],
-            },
-            {
-                "id": 5,
-                "nombre": "Cardioprotector",
-                "emoji": "❤️",
-                "tipo_dieta": "normocalorico",
-                "kcal_objetivo": 1800,
-                "pct_proteinas": 18,
-                "pct_grasas": 28,
-                "pct_carbohidratos": 54,
-                "requerimiento_hidrico_ml": 2500,
-                "fibra_g": 35,
-                "sodio_mg": 1500,
-                "descripcion": "Plan orientado a la salud cardiovascular: bajo en sodio, bajo en grasas saturadas, rico en fibra y antioxidantes.",
-                "objetivos": ["Salud cardiovascular", "Bajo en sodio", "Rico en fibra"],
-                "tiempos_comida": [
-                    {"nombre": "Desayuno", "hora": "07:30", "orden": 1},
-                    {"nombre": "Almuerzo", "hora": "13:00", "orden": 2},
-                    {"nombre": "Merienda", "hora": "16:30", "orden": 3},
-                    {"nombre": "Cena", "hora": "19:30", "orden": 4},
-                ],
-            },
-            {
-                "id": 6,
-                "nombre": "Renal",
-                "emoji": "🫘",
-                "tipo_dieta": "otro",
-                "kcal_objetivo": 1800,
-                "pct_proteinas": 12,
-                "pct_grasas": 35,
-                "pct_carbohidratos": 53,
-                "requerimiento_hidrico_ml": 1500,
-                "fibra_g": 20,
-                "sodio_mg": 1000,
-                "potasio_mg": 2000,
-                "descripcion": "Plan terapéutico para pacientes con enfermedad renal crónica. Restricción de proteínas, sodio, potasio y fósforo.",
-                "objetivos": ["Proteger función renal", "Restricción proteica", "Control electrolitos"],
-                "tiempos_comida": [
-                    {"nombre": "Desayuno", "hora": "07:00", "orden": 1},
-                    {"nombre": "Almuerzo", "hora": "12:30", "orden": 2},
-                    {"nombre": "Merienda", "hora": "15:30", "orden": 3},
-                    {"nombre": "Cena", "hora": "19:00", "orden": 4},
-                ],
-            },
-        ]
-        return Response(plantillas)
+    @action(detail=True, methods=['post'], url_path='enviar-email')
+    def enviar_email(self, request, pk=None):
+        """Envía el plan alimenticio por email al paciente"""
+        plan = self.get_object()
+        paciente = plan.paciente
+        email = paciente.user.email
+        
+        if not email or '@nutriapp.com' in email:
+            return Response(
+                {'error': 'El paciente no tiene email válido registrado'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        pdf_bytes = generar_pdf_plan(plan)
+        nombre = paciente.user.get_full_name() or paciente.user.username
+        
+        msg = EmailMessage(
+            subject='Tu Plan Alimenticio — NutriApp',
+            body=f"""Hola {nombre},
+
+Adjunto encontrarás tu plan alimenticio actualizado.
+
+Saludos,
+Equipo NutriApp""",
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[email],
+        )
+        msg.attach(f'plan_alimenticio.pdf', pdf_bytes, 'application/pdf')
+        
+        try:
+            msg.send(fail_silently=False)
+            return Response({'detail': 'Email enviado correctamente.'})
+        except Exception as e:
+            return Response(
+                {'error': f'Error al enviar email: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class TiempoComidaViewSet(viewsets.ModelViewSet):
@@ -392,109 +298,6 @@ def calcular_requerimientos(request):
     )
 
 
-# ─── ViewSet Plantillas ───────────────────────────────────────────────────────
-
-class PlantillaAlimenticiaViewSet(viewsets.ModelViewSet):
-    serializer_class = PlantillaAlimenticiaSerializer
-    permission_classes = [permissions.IsAuthenticated, IsNutricionistaOrPaciente]
-
-    def get_queryset(self):
-        qs = PlantillaAlimenticia.objects.prefetch_related(
-            "tiempos_comida__raciones__grupo",
-            "alimento_tags__alimento__grupo",
-        ).all()
-        activa = self.request.query_params.get("activa")
-        if activa is not None:
-            qs = qs.filter(activa=activa.lower() == "true")
-        return qs
-
-    def get_permissions(self):
-        if self.action in ["create", "update", "partial_update", "destroy"]:
-            return [permissions.IsAuthenticated(), IsNutricionista()]
-        return super().get_permissions()
-
-    def perform_create(self, serializer):
-        """Asociar al usuario que crea la plantilla"""
-        serializer.save(creado_por=self.request.user)
-
-    def destroy(self, request, *args, **kwargs):
-        plantilla = self.get_object()
-        if plantilla.es_default:
-            return Response(
-                {"error": "No se pueden eliminar plantillas del sistema."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        return super().destroy(request, *args, **kwargs)
-
-    @action(detail=True, methods=["post"], url_path="duplicar")
-    def duplicar(self, request, pk=None):
-        """Duplica una plantilla con todos sus tiempos y raciones"""
-        original = self.get_object()
-        nueva = PlantillaAlimenticia.objects.create(
-            nombre=f"{original.nombre} (copia)",
-            emoji=original.emoji,
-            tipo_dieta=original.tipo_dieta,
-            kcal_objetivo=original.kcal_objetivo,
-            descripcion=original.descripcion,
-            pct_proteinas=original.pct_proteinas,
-            pct_grasas=original.pct_grasas,
-            pct_carbohidratos=original.pct_carbohidratos,
-            requerimiento_hidrico_ml=original.requerimiento_hidrico_ml,
-            fibra_g=original.fibra_g,
-            sodio_mg=original.sodio_mg,
-            potasio_mg=original.potasio_mg,
-            cho_simples_g=original.cho_simples_g,
-            objetivos=original.objetivos,
-            activa=True,
-            es_default=False,
-        )
-        for t in original.tiempos_comida.prefetch_related("raciones").all():
-            nuevo_tiempo = TiempoComidaPlantilla.objects.create(
-                plantilla=nueva,
-                nombre=t.nombre,
-                hora=t.hora,
-                orden=t.orden,
-            )
-            for r in t.raciones.all():
-                RacionPlantilla.objects.create(
-                    tiempo_comida=nuevo_tiempo,
-                    grupo=r.grupo,
-                    cantidad=r.cantidad,
-                )
-        serializer = self.get_serializer(nueva)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-
-# ─── ViewSets auxiliares para tiempos/raciones de plantilla ──────────────────
-
-class TiempoComidaPlantillaViewSet(viewsets.ModelViewSet):
-    serializer_class = TiempoComidaSerializer  # reutilizamos estructura similar
-    permission_classes = [permissions.IsAuthenticated, IsNutricionista]
-
-    def get_serializer_class(self):
-        from .serializers import TiempoComidaPlantillaSerializer
-        return TiempoComidaPlantillaSerializer
-
-    def get_queryset(self):
-        qs = TiempoComidaPlantilla.objects.prefetch_related("raciones__grupo").all()
-        plantilla_id = self.request.query_params.get("plantilla")
-        if plantilla_id:
-            qs = qs.filter(plantilla_id=plantilla_id)
-        return qs.order_by("orden")
-
-
-class RacionPlantillaViewSet(viewsets.ModelViewSet):
-    serializer_class = RacionPlantillaSerializer
-    permission_classes = [permissions.IsAuthenticated, IsNutricionista]
-
-    def get_queryset(self):
-        qs = RacionPlantilla.objects.select_related("grupo", "tiempo_comida").all()
-        tiempo_id = self.request.query_params.get("tiempo_comida")
-        if tiempo_id:
-            qs = qs.filter(tiempo_comida_id=tiempo_id)
-        return qs
-
-
 class AlimentoTagPlanViewSet(viewsets.ModelViewSet):
     serializer_class = AlimentoTagPlanSerializer
     permission_classes = [permissions.IsAuthenticated, IsNutricionista]
@@ -507,13 +310,174 @@ class AlimentoTagPlanViewSet(viewsets.ModelViewSet):
         return qs
 
 
-class AlimentoTagPlantillaViewSet(viewsets.ModelViewSet):
-    serializer_class = AlimentoTagPlantillaSerializer
-    permission_classes = [permissions.IsAuthenticated, IsNutricionista]
+class PlanExcelExportView(APIView):
+    """Exporta un plan alimenticio a Excel"""
+    permission_classes = [permissions.IsAuthenticated, IsNutricionistaOrPaciente]
 
-    def get_queryset(self):
-        qs = AlimentoTagPlantilla.objects.select_related("alimento__grupo").all()
-        plantilla_id = self.request.query_params.get("plantilla")
-        if plantilla_id:
-            qs = qs.filter(plantilla_id=plantilla_id)
-        return qs
+    def get(self, request, plan_id):
+        from django.http import HttpResponse
+        from .excel_plan_exacto import generar_excel_plan_exacto
+        from .models import PlanAlimenticio
+
+        try:
+            plan = PlanAlimenticio.objects.select_related(
+                "paciente__user",
+                "paciente__expediente"
+            ).prefetch_related(
+                "paciente__registros_progreso",
+                "tiempos_comida__raciones__grupo",
+                "alimento_tags__alimento"
+            ).get(id=plan_id)
+        except PlanAlimenticio.DoesNotExist:
+            return Response(
+                {"error": "Plan no encontrado"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Generar Excel
+        excel_bytes = generar_excel_plan_exacto(plan)
+
+        # Retornar como respuesta
+        response = HttpResponse(
+            excel_bytes,
+            content_type="application/vnd.ms-excel"
+        )
+        filename = f"plan_alimenticio_{plan.paciente.user.username}_{plan.fecha_inicio}.xls"
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+
+class PlanExcelImportView(APIView):
+    """Importa un plan alimenticio desde Excel"""
+    permission_classes = [permissions.IsAuthenticated, IsNutricionista]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, paciente_id=None):
+        from .excel_plan_parser import importar_plan_desde_excel
+        from .models import PlanAlimenticio, TiempoComida, RacionPlan, AlimentoTagPlan
+        from apps.users.models import Paciente
+        from apps.catalogo.models import GrupoAlimento, Alimento
+        import os
+        
+        # Paciente_id puede venir como parámetro de URL o en el body
+        if not paciente_id:
+            paciente_id = request.data.get('paciente_id')
+        
+        if not paciente_id:
+            return Response(
+                {"error": "Se requiere paciente_id"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Verificar que el paciente existe
+        try:
+            paciente = Paciente.objects.get(id=paciente_id)
+        except Paciente.DoesNotExist:
+            return Response(
+                {"error": "Paciente no encontrado"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Verificar archivo (acepta 'file' o 'archivo')
+        file = request.FILES.get('file') or request.FILES.get('archivo')
+        if not file:
+            return Response(
+                {"error": "No se ha proporcionado ningún archivo."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Guardar temporalmente
+        _, ext = os.path.splitext(file.name)
+        ext = ext.lower() if ext else '.xlsx'
+        tmp_path = f'/tmp/plan_excel{ext}'
+
+        with open(tmp_path, 'wb') as f:
+            for chunk in file.chunks():
+                f.write(chunk)
+
+        # Parsear Excel
+        try:
+            datos = importar_plan_desde_excel(tmp_path, paciente_id)
+        except Exception as e:
+            return Response(
+                {"error": f"Error al parsear el archivo: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+        # Crear PlanAlimenticio
+        plan_data = datos.get('plan_data', {})
+        tiempos_data = datos.get('tiempos', [])
+        raciones_data = datos.get('raciones', [])
+        alimento_tags_data = datos.get('alimento_tags', [])
+        advertencias = datos.get('advertencias', [])
+
+        with transaction.atomic():
+            # Crear plan
+            plan = PlanAlimenticio.objects.create(**plan_data)
+
+            # Crear tiempos de comida
+            tiempos_map = {}  # nombre -> instancia
+            for tiempo_data in tiempos_data:
+                tiempo = TiempoComida.objects.create(
+                    plan=plan,
+                    nombre=tiempo_data['nombre'],
+                    hora=tiempo_data.get('hora'),
+                    orden=tiempo_data.get('orden', 0)
+                )
+                tiempos_map[tiempo_data['nombre']] = tiempo
+            
+            # Crear raciones
+            for racion_data in raciones_data:
+                tiempo_nombre = racion_data['tiempo_nombre']
+                grupo_nombre = racion_data['grupo_nombre']
+                
+                # Buscar tiempo
+                tiempo = tiempos_map.get(tiempo_nombre)
+                if not tiempo:
+                    advertencias.append(f"Tiempo '{tiempo_nombre}' no encontrado para ración")
+                    continue
+                
+                # Buscar grupo por nombre (case insensitive)
+                grupo = GrupoAlimento.objects.filter(
+                    nombre__icontains=grupo_nombre
+                ).first()
+                
+                if not grupo:
+                    advertencias.append(f"Grupo '{grupo_nombre}' no encontrado, se omitirá")
+                    continue
+                
+                RacionPlan.objects.create(
+                    tiempo_comida=tiempo,
+                    grupo=grupo,
+                    cantidad=racion_data['cantidad']
+                )
+            
+            # Crear tags de alimentos
+            for tag_data in alimento_tags_data:
+                alimento_nombre = tag_data['alimento_nombre']
+                tag = tag_data['tag']
+                
+                # Buscar alimento por nombre
+                alimento = Alimento.objects.filter(
+                    nombre__icontains=alimento_nombre
+                ).first()
+                
+                if alimento:
+                    AlimentoTagPlan.objects.get_or_create(
+                        plan=plan,
+                        alimento=alimento,
+                        defaults={'tag': tag}
+                    )
+                else:
+                    advertencias.append(f"Alimento '{alimento_nombre}' no encontrado para tag")
+
+        # Serializar y retornar
+        serializer = PlanAlimenticioSerializer(plan)
+        return Response({
+            'plan': serializer.data,
+            'advertencias': advertencias,
+            'mensaje': 'Plan importado exitosamente'
+        }, status=status.HTTP_201_CREATED)

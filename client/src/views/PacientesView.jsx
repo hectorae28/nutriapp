@@ -5,34 +5,39 @@ import TopHeader from '../components/TopHeader';
 import { EmptyState } from '../components/SharedComponents';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { useToast } from '../contexts/ToastContext';
-import { pacientesApi } from '../api/pacientes';
+import { usePacientesStore } from '../stores';
 import WizardNuevoPaciente from '../components/WizardNuevoPaciente';
 
 export default function PacientesView() {
-  const [pacientes, setPacientes] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { pacientes, loading, fetchPacientes } = usePacientesStore();
   const [search, setSearch] = useState('');
-  const [showWizard, setShowWizard] = useState(false); // Renamed from showModal
+  const [searchResults, setSearchResults] = useState(null);
+  const [searching, setSearching] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
   const navigate = useNavigate();
 
-  const cargar = useCallback((q = '') => {
-    setLoading(true);
-    pacientesApi
-      .list(q)
-      .then((data) => setPacientes(Array.isArray(data) ? data : data.results || []))
-      .catch(() => setPacientes([]))
-      .finally(() => setLoading(false));
-  }, []);
-
+  // Cargar pacientes al montar (sin búsqueda)
   useEffect(() => {
-    cargar();
-  }, [cargar]);
+    fetchPacientes();
+  }, [fetchPacientes]);
 
   // Debounce search
   useEffect(() => {
-    const t = setTimeout(() => cargar(search), 400);
+    if (!search.trim()) {
+      setSearchResults(null);
+      return;
+    }
+    setSearching(true);
+    const t = setTimeout(() => {
+      fetchPacientes(search)
+        .then((data) => setSearchResults(data))
+        .finally(() => setSearching(false));
+    }, 400);
     return () => clearTimeout(t);
-  }, [search, cargar]);
+  }, [search, fetchPacientes]);
+
+  const displayedPacientes = searchResults !== null ? searchResults : pacientes;
+  const isLoading = searching || loading;
 
   const verPaciente = (p) => navigate(`/pacientes/${p.id}`);
 
@@ -114,9 +119,9 @@ export default function PacientesView() {
 
       {/* Lista */}
       <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {loading ? (
+        {isLoading ? (
           <LoadingSpinner size={28} message="Cargando pacientes..." />
-        ) : pacientes.length === 0 ? (
+        ) : displayedPacientes.length === 0 ? (
           <EmptyState
             icon={Users}
             title={search ? 'Sin resultados' : 'Sin pacientes registrados'}
@@ -127,7 +132,7 @@ export default function PacientesView() {
             }
           />
         ) : (
-          pacientes.map((p) => (
+          displayedPacientes.map((p) => (
             <div
               key={p.id}
               style={{
@@ -145,23 +150,37 @@ export default function PacientesView() {
               onMouseEnter={(e) => (e.currentTarget.style.boxShadow = 'var(--shadow-md)')}
               onMouseLeave={(e) => (e.currentTarget.style.boxShadow = 'none')}
             >
-              {/* Avatar */}
-              <div
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: '50%',
-                  background: 'var(--accent-green)',
-                  color: '#fff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: 700,
-                  fontSize: 15,
-                  flexShrink: 0,
-                }}
-              >
-                {iniciales(p)}
+              {/* Avatar con indicador de estado */}
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: '50%',
+                    background: 'var(--accent-green)',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 700,
+                    fontSize: 15,
+                  }}
+                >
+                  {iniciales(p)}
+                </div>
+                {/* Dot indicator - green if active (or undefined), red if inactive */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    right: 0,
+                    width: 12,
+                    height: 12,
+                    borderRadius: '50%',
+                    background: p.is_active !== false ? '#16a34a' : '#dc2626',
+                    border: '2px solid var(--bg-surface)',
+                  }}
+                />
               </div>
 
               {/* Info */}
@@ -223,10 +242,9 @@ export default function PacientesView() {
           onClose={() => setShowWizard(false)}
           onSuccess={(pacienteId) => {
             setShowWizard(false);
+            fetchPacientes('', true); // forzar recarga
             if (pacienteId) {
               navigate(`/pacientes/${pacienteId}`);
-            } else {
-              cargar(search);
             }
           }}
         />

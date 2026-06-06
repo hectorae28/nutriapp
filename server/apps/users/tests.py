@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.test import TestCase
 from rest_framework import status
-from rest_framework.test import APIClient
+from rest_framework.test import APIClient, APITestCase
 
 from apps.expediente.models import RegistroProgreso
 from apps.planes.models import PlanAlimenticio
@@ -341,16 +341,18 @@ class AuthViewsCoverageTest(TestCase):
     def test_register_paciente_con_datos_invalidos(self):
         """Cubre líneas 56-60 de auth_views.py (manejo de errores)"""
         self.client.force_authenticate(user=self.nutri)
-        # Enviar datos inválidos (sin username)
+        # Enviar datos inválidos - sexo con valor inválido fuera de las opciones
         resp = self.client.post(
             "/api/auth/register-paciente/",
             {
-                "user": {"password": "test1234"},
+                "cedula": "12345678",
+                "first_name": "Test",
+                "sexo": "INVALIDO",  # Solo acepta M, F, O
             },
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("user", resp.data)
+        self.assertIn("sexo", resp.data)
 
     def test_register_paciente_exitoso(self):
         """Cubre el flujo completo de registro de paciente"""
@@ -358,24 +360,21 @@ class AuthViewsCoverageTest(TestCase):
         resp = self.client.post(
             "/api/auth/register-paciente/",
             {
-                "user": {
-                    "username": "nuevo_pac",
-                    "password": "pass123456",
-                    "first_name": "Nuevo",
-                    "last_name": "Paciente",
-                    "email": "nuevo@example.com",
-                },
                 "cedula": "99999999",
+                "first_name": "Nuevo",
+                "last_name": "Paciente",
+                "email": "nuevo@example.com",
+                "password": "pass123456",
                 "sexo": "M",
             },
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(resp.data["cedula"], "99999999")
-        # Verificar que el usuario fue creado
-        user = User.objects.get(username="nuevo_pac")
-        self.assertEqual(user.first_name, "Nuevo")
-        self.assertTrue(user.groups.filter(name="Paciente").exists())
+        # Verificar que el usuario fue creado - buscar por cedula del paciente
+        paciente = Paciente.objects.get(cedula="99999999")
+        self.assertEqual(paciente.user.first_name, "Nuevo")
+        self.assertTrue(paciente.user.groups.filter(name="Paciente").exists())
 
 
 class SerializersCoverageTest(TestCase):
@@ -841,3 +840,417 @@ class IntegracionEpica16Test(TestCase):
         self.assertIn("examenes", data)
         examen = data["examenes"][0]
         self.assertIn("tsh", examen)
+
+
+# ── Sprint 16 - Sistema de Roles ─────────────────────────────────────────────
+
+
+class Sprint16RolPermisosTest(APITestCase):
+    """Q1 Sprint 16 — Tests de permisos por rol (Nutricionista/Paciente/Secretario)"""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        
+        # Nutricionista
+        self.nut_user = User.objects.create_user(username='test_nut_s16', password='pass')
+        nut_group, _ = Group.objects.get_or_create(name='Nutricionista')
+        self.nut_user.groups.add(nut_group)
+        
+        # Secretario
+        self.sec_user = User.objects.create_user(username='test_sec_s16', password='pass')
+        sec_group, _ = Group.objects.get_or_create(name='Secretario')
+        self.sec_user.groups.add(sec_group)
+        
+        # Paciente
+        self.pac_user = User.objects.create_user(username='test_pac_s16', password='pass')
+        pac_group, _ = Group.objects.get_or_create(name='Paciente')
+        self.pac_user.groups.add(pac_group)
+        self.paciente = Paciente.objects.create(user=self.pac_user, cedula='88888888')
+        
+        # Otro paciente para verificar aislamiento
+        otro_user = User.objects.create_user(username='test_otro_s16', password='pass')
+        otro_user.groups.add(pac_group)
+        self.otro_paciente = Paciente.objects.create(user=otro_user, cedula='77777777')
+
+    def test_secretario_puede_listar_pacientes(self):
+        self.client.force_authenticate(user=self.sec_user)
+        resp = self.client.get('/api/pacientes/')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_secretario_puede_importar_excel(self):
+        """Secretario puede importar pacientes desde Excel"""
+        import io
+        import os
+        
+        self.client.force_authenticate(user=self.sec_user)
+        
+        # Buscar el archivo de historia_nutricional.xls
+        xls_path = os.path.join(
+            os.path.dirname(__file__),
+            "../../../docs/historia_nutricional.xls",
+        )
+        xls_path = os.path.normpath(xls_path)
+        
+        if not os.path.exists(xls_path):
+            # Si no existe el archivo, crear un archivo dummy para el test
+            fake_file = io.BytesIO(b"dummy content")
+            fake_file.name = "test.xls"
+            resp = self.client.post(
+                '/api/pacientes/importar-excel/',
+                {'archivo': fake_file},
+                format='multipart',
+            )
+            # El secretario debe tener permiso para acceder al endpoint (no 403)
+            self.assertNotEqual(resp.status_code, 403)
+        else:
+            # Usar el archivo real
+            with open(xls_path, 'rb') as f:
+                resp = self.client.post(
+                    '/api/pacientes/importar-excel/',
+                    {'archivo': f},
+                    format='multipart',
+                )
+            # Acepta 200/201/400 pero NO 403 (forbidden)
+            self.assertIn(resp.status_code, [200, 201, 400])
+
+    def test_secretario_no_puede_eliminar_paciente(self):
+        self.client.force_authenticate(user=self.sec_user)
+        resp = self.client.delete(f'/api/pacientes/{self.paciente.id}/')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_secretario_puede_ver_expediente(self):
+        from apps.expediente.models import ExpedienteClinico
+        exp = ExpedienteClinico.objects.create(paciente=self.paciente)
+        self.client.force_authenticate(user=self.sec_user)
+        resp = self.client.get(f'/api/expedientes/{exp.id}/')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_secretario_no_puede_crear_expediente(self):
+        self.client.force_authenticate(user=self.sec_user)
+        resp = self.client.post('/api/expedientes/', {'paciente': self.paciente.id}, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_paciente_no_puede_modificar_catalogo(self):
+        self.client.force_authenticate(user=self.pac_user)
+        resp = self.client.post('/api/grupos-alimento/', {'nombre': 'HackGrupo', 'abreviatura': 'HG'}, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_paciente_puede_leer_catalogo(self):
+        self.client.force_authenticate(user=self.pac_user)
+        resp = self.client.get('/api/grupos-alimento/')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_paciente_solo_ve_su_propio_perfil(self):
+        self.client.force_authenticate(user=self.pac_user)
+        resp = self.client.get('/api/pacientes/')
+        self.assertEqual(resp.status_code, 200)
+        ids = [p['id'] for p in resp.data]
+        self.assertIn(self.paciente.id, ids)
+        self.assertNotIn(self.otro_paciente.id, ids)
+
+    def test_todos_pacientes_tienen_grupo_paciente(self):
+        from django.contrib.auth.models import Group
+        pac_group = Group.objects.get(name='Paciente')
+        sin_grupo = Paciente.objects.exclude(user__groups=pac_group).count()
+        self.assertEqual(sin_grupo, 0, f'{sin_grupo} pacientes sin grupo Paciente')
+
+    def test_nutricionista_puede_crear_secretario(self):
+        self.client.force_authenticate(user=self.nut_user)
+        resp = self.client.post('/api/auth/register-secretario/', {
+            'first_name': 'Maria', 'last_name': 'Gomez',
+            'email': 'maria_s16@test.com', 'password': 'pass123'
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+
+    def test_secretario_no_puede_crear_otro_secretario(self):
+        self.client.force_authenticate(user=self.sec_user)
+        resp = self.client.post('/api/auth/register-secretario/', {
+            'first_name': 'Hack', 'email': 'hack@test.com'
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests de exportación Excel y PDF
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ExportacionExcelPdfTest(TestCase):
+    """Exportar Excel y PDF de la historia nutricional."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        from apps.expediente.models import ExpedienteClinico, ConsumoCaloricoItem, RegistroProgreso
+        self.client = APIClient()
+        Group.objects.get_or_create(name="Paciente")
+        Group.objects.get_or_create(name="Nutricionista")
+
+        self.paciente = make_paciente("pac_export",
+            cedula="99887766",
+            telefono="04141234567",
+        )
+        self.paciente.user.first_name = "Héctor"
+        self.paciente.user.last_name = "Delgado"
+        self.paciente.user.save()
+
+        self.nutri = make_user("nutri_export", group_name="Nutricionista")
+
+        # Crear expediente con consumo calórico y antropometría
+        self.exp = ExpedienteClinico.objects.create(
+            paciente=self.paciente,
+            peso_usual_kg="90.00",
+            peso_ideal_kg="70.25",
+            peso_prequirurgico_kg="78.32",
+            peso_maximo_kg="97.00",
+            peso_minimo_kg="83.00",
+            peso_deseado_kg="85.00",
+            motivo_consulta="Sobrepeso grado II",
+            ant_personales="Hernia umbilical",
+            actividad_fisica="Bicicleta 4-5/7",
+            observaciones_calorias="Gasta 2768 kcal/día",
+        )
+        grupos = [
+            ("LECHE",    1,   8.0,  2.5,  12.0,  102.0),
+            ("CARNES_A", 10, 70.0, 30.0,   0.0,  550.0),
+            ("VEGETALES", 2,  4.0,  0.0,  10.0,   50.0),
+            ("ALMIDONES", 5, 15.0,  0.0,  75.0,  400.0),
+            ("GRASAS",    7,  0.0, 35.0,   0.0,  315.0),
+        ]
+        for i, (grupo, intc, p, g, cho, kcal) in enumerate(grupos):
+            ConsumoCaloricoItem.objects.create(
+                expediente=self.exp, grupo=grupo, intercambios=intc,
+                proteinas_g=p, grasas_g=g, cho_g=cho, kcal=kcal, orden=i,
+            )
+        RegistroProgreso.objects.create(
+            paciente=self.paciente, fecha="2026-04-23",
+            peso_kg="90.15", talla_cm="177.0",
+            creado_por=self.nutri,
+        )
+
+    def test_exportar_excel_devuelve_xlsx(self):
+        """GET exportar-excel → 200 con Content-Type xls."""
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.get(f"/api/pacientes/{self.paciente.pk}/exportar-excel/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("vnd.ms-excel", resp["Content-Type"])
+        self.assertIn("historia_", resp["Content-Disposition"])
+        self.assertIn(".xls", resp["Content-Disposition"])
+        # Verificar que es un xls válido
+        import xlrd, io
+        wb = xlrd.open_workbook(file_contents=resp.content)
+        ws = wb.sheet_by_index(0)
+        self.assertGreater(ws.nrows, 30)
+
+    def test_exportar_excel_contiene_calculos(self):
+        """El Excel exportado incluye columnas G./KG-P/DÍA y %PI."""
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.get(f"/api/pacientes/{self.paciente.pk}/exportar-excel/")
+        self.assertEqual(resp.status_code, 200)
+        import xlrd, io
+        wb = xlrd.open_workbook(file_contents=resp.content)
+        ws = wb.sheet_by_index(0)
+        contenido = " ".join(str(ws.cell_value(r,c) or "") for r in range(ws.nrows) for c in range(ws.ncols))
+        self.assertIn("G./KG-P/DÍA", contenido)
+        self.assertIn("%PI", contenido)
+        self.assertIn("ANTROPOMETÍA", contenido)
+
+    def test_exportar_pdf_devuelve_pdf(self):
+        """GET exportar-pdf → 200 con Content-Type application/pdf."""
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.get(f"/api/pacientes/{self.paciente.pk}/exportar-pdf/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "application/pdf")
+        self.assertIn(".pdf", resp["Content-Disposition"])
+        # PDF comienza con %PDF
+        self.assertTrue(resp.content[:4] == b"%PDF")
+
+    def test_exportar_pdf_contiene_datos_paciente(self):
+        """El PDF generado es parseable y tiene el tamaño esperado (> 5KB)."""
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.get(f"/api/pacientes/{self.paciente.pk}/exportar-pdf/")
+        self.assertEqual(resp.status_code, 200)
+        # PDF razonable para una historia completa: > 5KB
+        self.assertGreater(len(resp.content), 5000)
+
+    def test_exportar_sin_autenticacion_da_403(self):
+        """Sin login → 403."""
+        resp = self.client.get(f"/api/pacientes/{self.paciente.pk}/exportar-excel/")
+        self.assertIn(resp.status_code, [401, 403])
+        resp2 = self.client.get(f"/api/pacientes/{self.paciente.pk}/exportar-pdf/")
+        self.assertIn(resp2.status_code, [401, 403])
+
+    def test_exportar_paciente_inexistente_da_404(self):
+        """Paciente que no existe → 404."""
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.get("/api/pacientes/99999/exportar-excel/")
+        self.assertEqual(resp.status_code, 404)
+        resp2 = self.client.get("/api/pacientes/99999/exportar-pdf/")
+        self.assertEqual(resp2.status_code, 404)
+
+
+# ── Sprint 17 - Tests de Regresión ───────────────────────────────────────────
+
+
+class Sprint17Tests(TestCase):
+    """Tests de regresión Sprint 17"""
+
+    def setUp(self):
+        # crear nutricionista y paciente de prueba
+        from django.contrib.auth.models import Group
+        self.client = APIClient()
+        self.nutricionista_user = make_user('nut17', group_name='Nutricionista')
+        self.nutricionista_user.email = 'nut17@test.com'
+        self.nutricionista_user.save()
+        self.client.force_authenticate(user=self.nutricionista_user)
+        # buscar un paciente existente
+        from apps.users.models import Paciente
+        self.paciente = Paciente.objects.first()
+
+    def test_password_reset_request_email_valido(self):
+        self.client.logout()
+        resp = self.client.post('/api/auth/password-reset/', {'email': self.nutricionista_user.email}, content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_password_reset_request_email_invalido(self):
+        self.client.logout()
+        resp = self.client.post('/api/auth/password-reset/', {'email': 'noexiste@x.com'}, content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_configuracion_sistema_get_default(self):
+        from apps.users.models import ConfiguracionSistema
+        val = ConfiguracionSistema.get('dias_inactividad_desactivar', '180')
+        self.assertIsNotNone(val)
+
+    def test_exportar_excel_no_tiene_vct_error(self):
+        if not self.paciente:
+            self.skipTest('No hay pacientes')
+        resp = self.client.get(f'/api/pacientes/{self.paciente.id}/exportar-excel/')
+        self.assertNotEqual(resp.status_code, 500)
+
+
+# ── Tests B1-B3 (proxima_cita + toggle-activo) ───────────────────────────────
+
+
+class ProximaCitaTest(TestCase):
+    """B1 — Campo proxima_cita en modelo Paciente"""
+
+    def setUp(self):
+        self.client = APIClient()
+        Group.objects.get_or_create(name="Nutricionista")
+        Group.objects.get_or_create(name="Paciente")
+        self.nutri = make_user("nutri_cita", group_name="Nutricionista")
+        self.paciente = make_paciente("pac_cita", cedula="11223344")
+        self.client.force_authenticate(user=self.nutri)
+
+    def test_proxima_cita_patch(self):
+        """PATCH /api/pacientes/{id}/ con proxima_cita debe guardar la fecha"""
+        fecha_cita = "2025-07-15"
+        resp = self.client.patch(
+            f"/api/pacientes/{self.paciente.id}/",
+            {"proxima_cita": fecha_cita},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["proxima_cita"], fecha_cita)
+        
+        # Verify it was saved in database
+        self.paciente.refresh_from_db()
+        self.assertEqual(str(self.paciente.proxima_cita), fecha_cita)
+
+    def test_proxima_cita_puede_ser_null(self):
+        """proxima_cita puede ser null/blank"""
+        resp = self.client.patch(
+            f"/api/pacientes/{self.paciente.id}/",
+            {"proxima_cita": None},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIsNone(resp.data["proxima_cita"])
+
+    def test_proxima_cita_en_serializer_read_write(self):
+        """proxima_cita debe ser read/write, no read_only"""
+        from apps.users.serializers import PacienteSerializer
+        
+        serializer = PacienteSerializer(self.paciente)
+        self.assertIn("proxima_cita", serializer.data)
+        
+        # Verify it's writable (not in read_only_fields)
+        self.assertNotIn("proxima_cita", PacienteSerializer.Meta.read_only_fields)
+
+
+class ToggleActivoTest(TestCase):
+    """B2 — Endpoint toggle-activo"""
+
+    def setUp(self):
+        self.client = APIClient()
+        Group.objects.get_or_create(name="Nutricionista")
+        Group.objects.get_or_create(name="Secretario")
+        Group.objects.get_or_create(name="Paciente")
+        
+        self.nutri = make_user("nutri_toggle", group_name="Nutricionista")
+        self.secretario = make_user("sec_toggle", group_name="Secretario")
+        self.paciente = make_paciente("pac_toggle", cedula="55667788")
+        
+        # Ensure patient starts active
+        self.paciente.user.is_active = True
+        self.paciente.user.save()
+
+    def test_toggle_activo_on_off(self):
+        """POST toggle-activo dos veces debe invertir el estado"""
+        self.client.force_authenticate(user=self.nutri)
+        
+        # First toggle: active -> inactive
+        resp1 = self.client.post(f"/api/pacientes/{self.paciente.id}/toggle-activo/")
+        self.assertEqual(resp1.status_code, status.HTTP_200_OK)
+        self.assertFalse(resp1.data["is_active"])
+        self.assertIn("mensaje", resp1.data)
+        self.assertIn("desactivado", resp1.data["mensaje"].lower())
+        
+        # Verify in database
+        self.paciente.user.refresh_from_db()
+        self.assertFalse(self.paciente.user.is_active)
+        
+        # Second toggle: inactive -> active
+        resp2 = self.client.post(f"/api/pacientes/{self.paciente.id}/toggle-activo/")
+        self.assertEqual(resp2.status_code, status.HTTP_200_OK)
+        self.assertTrue(resp2.data["is_active"])
+        self.assertIn("activado", resp2.data["mensaje"].lower())
+        
+        # Verify in database
+        self.paciente.user.refresh_from_db()
+        self.assertTrue(self.paciente.user.is_active)
+
+    def test_toggle_activo_paciente_forbidden(self):
+        """Paciente no puede usar toggle-activo (debe devolver 403)"""
+        self.client.force_authenticate(user=self.paciente.user)
+        
+        resp = self.client.post(f"/api/pacientes/{self.paciente.id}/toggle-activo/")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_toggle_activo_secretario_permitido(self):
+        """Secretario debe poder usar toggle-activo"""
+        self.client.force_authenticate(user=self.secretario)
+        
+        resp = self.client.post(f"/api/pacientes/{self.paciente.id}/toggle-activo/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertFalse(resp.data["is_active"])
+
+    def test_toggle_activo_nutricionista_permitido(self):
+        """Nutricionista debe poder usar toggle-activo"""
+        self.client.force_authenticate(user=self.nutri)
+        
+        resp = self.client.post(f"/api/pacientes/{self.paciente.id}/toggle-activo/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertFalse(resp.data["is_active"])
+
+    def test_toggle_activo_sin_autenticacion(self):
+        """Sin autenticación debe devolver 401/403"""
+        anon_client = APIClient()
+        resp = anon_client.post(f"/api/pacientes/{self.paciente.id}/toggle-activo/")
+        self.assertIn(resp.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+    def test_toggle_activo_paciente_inexistente(self):
+        """Paciente que no existe debe devolver 404"""
+        self.client.force_authenticate(user=self.nutri)
+        
+        resp = self.client.post("/api/pacientes/99999/toggle-activo/")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)

@@ -394,24 +394,38 @@ def parse_historia_nutricional(file_path):
 
     # ---------------------------------------------------------------
     # ANTROPOMETRÍA
-    # Encabezados en fila 156 (idx), datos desde fila 157:
-    #   col 1 = fecha, col 4 = peso (kg), col 7 = talla (cm)
-    # Se leen hasta 13 filas (157-169)
+    # Encabezados en fila 156 (idx 155):
+    #   col 1=FECHA  col 4=PESO  col 7=TALLA  col 10=IMC  col 13=MB
+    #   col 16=%GC   col 20=%MS  col 24=%GV
+    #   col 28=%PP   col 32=%PI  col 36=%PU
+    # Datos desde fila 157 (idx 156), hasta 13 filas (157-169, idx 156-168)
+    # %PP = (P.Usual - P.Actual) / P.Usual × 100  (valor guardado en Excel)
+    # %PI = P.Actual / P.Ideal × 100
+    # %PU = P.Actual / P.Usual × 100
     # ---------------------------------------------------------------
     try:
         registros = []
-        for row_idx in range(157, 170):
+        for row_idx in range(156, 169):
             fecha_val = _get_cell_value(sheet, row_idx, 1)
-            peso_val = _get_cell_value(sheet, row_idx, 4)
+            peso_val  = _get_cell_value(sheet, row_idx, 4)
             talla_val = _get_cell_value(sheet, row_idx, 7)
             fecha = _parse_date(fecha_val)
-            peso = _parse_peso(peso_val)
+            peso  = _parse_peso(peso_val)
             talla = _parse_peso(talla_val)
             if fecha and peso and peso > 0:
+                # Leer %PP/%PI/%PU del Excel (pueden ser None si la fila está vacía)
+                pct_pp_raw = _parse_decimal(_get_cell_value(sheet, row_idx, 28))
+                pct_pi_raw = _parse_decimal(_get_cell_value(sheet, row_idx, 32))
+                pct_pu_raw = _parse_decimal(_get_cell_value(sheet, row_idx, 36))
                 registros.append({
                     'fecha': fecha,
                     'peso_kg': peso,
                     'talla_cm': talla if talla and talla > 0 else None,
+                    # Guardar %PP/%PI/%PU del Excel como referencia informativa
+                    # El backend recalcula estos valores en el serializer
+                    'pct_pp_xls': float(pct_pp_raw) if pct_pp_raw is not None else None,
+                    'pct_pi_xls': float(pct_pi_raw) if pct_pi_raw is not None else None,
+                    'pct_pu_xls': float(pct_pu_raw) if pct_pu_raw is not None else None,
                 })
         data['registros_progreso'] = registros
     except Exception as e:

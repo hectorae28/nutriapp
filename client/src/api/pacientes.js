@@ -7,6 +7,7 @@ export const pacientesApi = {
   get: (id) => api.get(`/pacientes/${id}/`),
   create: (data) => api.post('/auth/register-paciente/', data),
   update: (id, data) => api.patch(`/pacientes/${id}/`, data),
+  toggleActivo: (id) => api.post(`/pacientes/${id}/toggle-activo/`),
   importarExcel: async (formData) => {
     const csrfToken = getCsrfToken();
     const response = await fetch('/api/pacientes/importar-excel/', {

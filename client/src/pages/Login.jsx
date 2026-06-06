@@ -1,7 +1,7 @@
 import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 const schema = yup.object({
@@ -36,10 +36,11 @@ export default function Login() {
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Usuario</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Correo o usuario</label>
             <input
               type="text"
               autoFocus
+              placeholder="correo@ejemplo.com"
               {...register('username')}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
@@ -68,6 +69,13 @@ export default function Login() {
           >
             {isSubmitting ? 'Ingresando...' : 'Ingresar'}
           </button>
+
+          <Link
+            to="/recuperar-password"
+            className="block text-center text-sm text-green-600 hover:text-green-700 font-medium mt-3"
+          >
+            ¿Olvidaste tu contraseña?
+          </Link>
         </form>
       </div>
     </div>

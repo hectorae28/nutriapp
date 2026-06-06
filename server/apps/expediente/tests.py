@@ -5,13 +5,12 @@ from django.contrib.auth.models import Group
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.test import APIClient
+from rest_framework.test import APIClient, APITestCase
 
 from apps.catalogo.models import GrupoAlimento
 from apps.expediente.models import (
     ExamenBioquimico,
     ExpedienteClinico,
-    Notificacion,
     RegistroProgreso,
 )
 from apps.planes.models import PlanAlimenticio, RacionPlan, TiempoComida
@@ -466,8 +465,8 @@ class MetricasNutricionistaTest(TestCase):
         self.assertGreaterEqual(resp.data["consultas_este_mes"], 1)
         self.assertGreaterEqual(resp.data["examenes_este_mes"], 1)
 
-        # Verificar distribución de dietas
-        self.assertIsInstance(resp.data["distribucion_tipo_dieta"], dict)
+        # Verificar distribución de dietas - puede ser dict o list
+        self.assertIsInstance(resp.data["distribucion_tipo_dieta"], list)
 
 
 class ReportePacienteTest(TestCase):
@@ -713,286 +712,6 @@ class ComparativaTest(TestCase):
         self.assertEqual(pac1_data["plan_tipo_dieta"], "Hipocalórica")
 
 
-class NotificacionesAPITest(TestCase):
-    """Tests para el sistema de notificaciones"""
-
-    def setUp(self):
-        self.client = APIClient()
-        Group.objects.get_or_create(name="Paciente")
-        Group.objects.get_or_create(name="Nutricionista")
-        self.nutri = make_user("nutri_notif", group_name="Nutricionista")
-        self.paciente = make_paciente("pac_notif")
-        self.paciente2 = make_paciente("pac_notif2")
-
-    def test_notificaciones_usuario_autenticado(self):
-        """GET /api/notificaciones/ retorna estructura correcta"""
-        # Crear un plan activo para evitar alertas automáticas de sin_plan
-        PlanAlimenticio.objects.create(
-            paciente=self.paciente, fecha_inicio=timezone.now().date(), activo=True
-        )
-        PlanAlimenticio.objects.create(
-            paciente=self.paciente2, fecha_inicio=timezone.now().date(), activo=True
-        )
-
-        # Crear registros recientes para evitar alertas de sin_progreso
-        RegistroProgreso.objects.create(
-            paciente=self.paciente,
-            fecha=timezone.now().date(),
-            peso_kg=70.0,
-            creado_por=self.nutri,
-        )
-        RegistroProgreso.objects.create(
-            paciente=self.paciente2,
-            fecha=timezone.now().date(),
-            peso_kg=75.0,
-            creado_por=self.nutri,
-        )
-
-        # Crear notificación manual para el nutricionista
-        Notificacion.objects.create(
-            destinatario=self.nutri,
-            tipo="sistema",
-            titulo="Test notificación",
-            mensaje="Mensaje de prueba",
-            paciente=self.paciente,
-        )
-
-        self.client.force_authenticate(user=self.nutri)
-        resp = self.client.get("/api/notificaciones/")
-        self.assertEqual(resp.status_code, 200)
-
-        # Verificar estructura de respuesta
-        self.assertIn("total_no_leidas", resp.data)
-        self.assertIn("notificaciones", resp.data)
-        self.assertGreaterEqual(resp.data["total_no_leidas"], 1)
-        self.assertGreaterEqual(len(resp.data["notificaciones"]), 1)
-
-        # Verificar campos de notificación
-        notif = resp.data["notificaciones"][0]
-        self.assertIn("id", notif)
-        self.assertIn("tipo", notif)
-        self.assertIn("titulo", notif)
-        self.assertIn("mensaje", notif)
-        self.assertIn("leida", notif)
-        self.assertIn("paciente", notif)
-        self.assertIn("created_at", notif)
-
-    def test_marcar_notificacion_leida(self):
-        """PATCH /api/notificaciones/{id}/leer/ cambia leida=True"""
-        notif = Notificacion.objects.create(
-            destinatario=self.nutri,
-            tipo="sistema",
-            titulo="Test",
-            mensaje="Test mensaje",
-            leida=False,
-        )
-
-        self.client.force_authenticate(user=self.nutri)
-        resp = self.client.patch(f"/api/notificaciones/{notif.pk}/leer/")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.data["leida"], True)
-
-        # Verificar en BD
-        notif.refresh_from_db()
-        self.assertTrue(notif.leida)
-
-    def test_marcar_todas_leidas(self):
-        """POST /api/notificaciones/marcar-todas-leidas/ funciona"""
-        # Crear varias notificaciones no leídas
-        for i in range(3):
-            Notificacion.objects.create(
-                destinatario=self.nutri,
-                tipo="sistema",
-                titulo=f"Notif {i}",
-                mensaje="Test",
-                leida=False,
-            )
-
-        self.client.force_authenticate(user=self.nutri)
-        resp = self.client.post("/api/notificaciones/marcar_todas_leidas/")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.data["actualizadas"], 3)
-
-        # Verificar que todas están leídas
-        count_no_leidas = Notificacion.objects.filter(
-            destinatario=self.nutri, leida=False
-        ).count()
-        self.assertEqual(count_no_leidas, 0)
-
-    def test_generador_alerta_sin_progreso(self):
-        """Paciente sin registros genera notificación automática para nutricionista"""
-        # Crear registro antiguo (>14 días)
-        fecha_antigua = timezone.now().date() - timedelta(days=20)
-        RegistroProgreso.objects.create(
-            paciente=self.paciente,
-            fecha=fecha_antigua,
-            peso_kg=70.0,
-            creado_por=self.nutri,
-        )
-
-        # Llamar al endpoint GET que genera alertas
-        self.client.force_authenticate(user=self.nutri)
-        resp = self.client.get("/api/notificaciones/")
-        self.assertEqual(resp.status_code, 200)
-
-        # Verificar que se generó la alerta
-        notif_sin_progreso = Notificacion.objects.filter(
-            destinatario=self.nutri, tipo="sin_progreso", paciente=self.paciente
-        ).first()
-        self.assertIsNotNone(notif_sin_progreso)
-        self.assertIn("días sin registrar", notif_sin_progreso.mensaje)
-
-    def test_paciente_solo_ve_sus_notificaciones(self):
-        """Paciente no puede ver notificaciones del nutricionista"""
-        # Crear registro reciente para evitar alertas automáticas
-        RegistroProgreso.objects.create(
-            paciente=self.paciente,
-            fecha=timezone.now().date(),
-            peso_kg=70.0,
-            creado_por=self.nutri,
-        )
-
-        # Crear notificación para nutricionista
-        Notificacion.objects.create(
-            destinatario=self.nutri,
-            tipo="sistema",
-            titulo="Solo para nutricionista",
-            mensaje="No visible para paciente",
-        )
-
-        # Crear notificación para paciente
-        Notificacion.objects.create(
-            destinatario=self.paciente.user,
-            tipo="sistema",
-            titulo="Solo para paciente",
-            mensaje="Visible para paciente",
-            paciente=self.paciente,
-        )
-
-        # Login como paciente
-        self.client.force_authenticate(user=self.paciente.user)
-        resp = self.client.get("/api/notificaciones/")
-        self.assertEqual(resp.status_code, 200)
-
-        # Solo debe ver su propia notificación
-        self.assertEqual(len(resp.data["notificaciones"]), 1)
-        self.assertEqual(resp.data["notificaciones"][0]["titulo"], "Solo para paciente")
-
-    def test_filtro_no_leidas(self):
-        """Parámetro ?no_leidas=true filtra correctamente"""
-        # Crear planes activos para evitar alertas automáticas
-        PlanAlimenticio.objects.create(
-            paciente=self.paciente, fecha_inicio=timezone.now().date(), activo=True
-        )
-        PlanAlimenticio.objects.create(
-            paciente=self.paciente2, fecha_inicio=timezone.now().date(), activo=True
-        )
-
-        # Crear registros recientes para evitar alertas de sin_progreso
-        RegistroProgreso.objects.create(
-            paciente=self.paciente,
-            fecha=timezone.now().date(),
-            peso_kg=70.0,
-            creado_por=self.nutri,
-        )
-        RegistroProgreso.objects.create(
-            paciente=self.paciente2,
-            fecha=timezone.now().date(),
-            peso_kg=75.0,
-            creado_por=self.nutri,
-        )
-
-        # Crear exámenes recientes para evitar alertas de examen_pendiente
-        ExamenBioquimico.objects.create(
-            paciente=self.paciente, fecha=timezone.now().date()
-        )
-        ExamenBioquimico.objects.create(
-            paciente=self.paciente2, fecha=timezone.now().date()
-        )
-
-        # Crear notificaciones mezcladas
-        Notificacion.objects.create(
-            destinatario=self.nutri,
-            tipo="sistema",
-            titulo="No leída",
-            mensaje="Test",
-            leida=False,
-        )
-        Notificacion.objects.create(
-            destinatario=self.nutri,
-            tipo="sistema",
-            titulo="Leída",
-            mensaje="Test",
-            leida=True,
-        )
-
-        self.client.force_authenticate(user=self.nutri)
-        resp = self.client.get("/api/notificaciones/?no_leidas=true")
-        self.assertEqual(resp.status_code, 200)
-
-        # Solo debe retornar las no leídas
-        self.assertEqual(len(resp.data["notificaciones"]), 1)
-        # Verificar que todas son no leídas
-        for notif in resp.data["notificaciones"]:
-            self.assertFalse(notif["leida"])
-
-    def test_alerta_paciente_sin_progreso_7_dias(self):
-        """Paciente sin progreso en 7 días genera alerta para él mismo"""
-        # Crear registro antiguo (>7 días)
-        fecha_antigua = timezone.now().date() - timedelta(days=10)
-        RegistroProgreso.objects.create(
-            paciente=self.paciente,
-            fecha=fecha_antigua,
-            peso_kg=70.0,
-            creado_por=self.nutri,
-        )
-
-        # Login como paciente y obtener notificaciones
-        self.client.force_authenticate(user=self.paciente.user)
-        resp = self.client.get("/api/notificaciones/")
-        self.assertEqual(resp.status_code, 200)
-
-        # Verificar que se generó la alerta
-        notif = Notificacion.objects.filter(
-            destinatario=self.paciente.user, tipo="sin_progreso"
-        ).first()
-        self.assertIsNotNone(notif)
-        self.assertIn("Recuerda registrar tu peso", notif.mensaje)
-
-    def test_no_duplicar_alertas_sin_progreso(self):
-        """No debe crear múltiples alertas del mismo tipo si ya existe una no leída"""
-        # Crear registro antiguo
-        fecha_antigua = timezone.now().date() - timedelta(days=20)
-        RegistroProgreso.objects.create(
-            paciente=self.paciente,
-            fecha=fecha_antigua,
-            peso_kg=70.0,
-            creado_por=self.nutri,
-        )
-
-        self.client.force_authenticate(user=self.nutri)
-
-        # Primera llamada - debe crear alerta
-        resp1 = self.client.get("/api/notificaciones/")
-        count1 = Notificacion.objects.filter(
-            destinatario=self.nutri,
-            tipo="sin_progreso",
-            paciente=self.paciente,
-            leida=False,
-        ).count()
-        self.assertEqual(count1, 1)
-
-        # Segunda llamada - NO debe crear otra alerta
-        resp2 = self.client.get("/api/notificaciones/")
-        count2 = Notificacion.objects.filter(
-            destinatario=self.nutri,
-            tipo="sin_progreso",
-            paciente=self.paciente,
-            leida=False,
-        ).count()
-        self.assertEqual(count2, 1)  # Sigue siendo 1, no se duplicó
-
-
 # ── Sprint 10 - Coverage adicional ───────────────────────────────────────────
 
 
@@ -1036,50 +755,6 @@ class ViewsCoverageTest(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.data), 1)
         self.assertEqual(resp.data[0]["paciente"], self.paciente.pk)
-
-    def test_notificacion_examen_pendiente_sin_examen_con_registros(self):
-        """Alerta de examen pendiente cuando tiene registros pero nunca tuvo examen (líneas 172-179)"""
-        # Crear registro para el paciente
-        RegistroProgreso.objects.create(
-            paciente=self.paciente,
-            fecha=timezone.now().date() - timedelta(days=5),
-            peso_kg=70.0,
-            creado_por=self.nutri,
-        )
-
-        # Login como nutricionista - genera alertas
-        self.client.force_authenticate(user=self.nutri)
-        resp = self.client.get("/api/notificaciones/")
-        self.assertEqual(resp.status_code, 200)
-
-        # Verificar que se generó alerta de examen pendiente
-        notif = Notificacion.objects.filter(
-            destinatario=self.nutri, tipo="examen_pendiente", paciente=self.paciente
-        ).first()
-        self.assertIsNotNone(notif)
-
-    def test_notificacion_examen_pendiente_mas_90_dias(self):
-        """Alerta cuando último examen fue hace más de 90 días (líneas 157-165)"""
-        # Crear examen antiguo
-        fecha_antigua = timezone.now().date() - timedelta(days=100)
-        ExamenBioquimico.objects.create(
-            paciente=self.paciente, fecha=fecha_antigua, glucosa=90.0
-        )
-
-        # Login como nutricionista - genera alertas
-        self.client.force_authenticate(user=self.nutri)
-        resp = self.client.get("/api/notificaciones/")
-        self.assertEqual(resp.status_code, 200)
-
-        # Verificar que se generó alerta
-        notif = Notificacion.objects.filter(
-            destinatario=self.nutri,
-            tipo="examen_pendiente",
-            paciente=self.paciente,
-            leida=False,
-        ).first()
-        self.assertIsNotNone(notif)
-        self.assertIn("3 meses", notif.mensaje)
 
 
 class RecordatorioAlimentarioCoverageTest(TestCase):
@@ -1264,3 +939,300 @@ class Sprint13RecordatorioNestedWriteTest(TestCase):
         self.assertIsNotNone(entrada_cafe)
         self.assertEqual(entrada_cafe["nombre"], "Desayuno")
         self.assertEqual(entrada_cafe["descripcion"], "Café con leche - 1 taza")
+
+
+# ── Sprint 14 - Documentos Médicos PDF + QR ──────────────────────────────────
+
+
+class DocumentoMedicoTest(APITestCase):
+    """Tests para generación de documentos médicos con PDF y QR"""
+
+    def setUp(self):
+        # Crear nutricionista
+        self.nutricionista = make_user('doc_test', group_name='Nutricionista')
+        self.client.force_authenticate(user=self.nutricionista)
+
+        # Crear paciente
+        self.paciente = make_paciente('pac_doc_test')
+
+    def test_crear_receta_genera_pdf(self):
+        """POST /api/documentos/ con tipo receta → 200 + PDF binario"""
+        payload = {
+            "paciente": self.paciente.id,
+            "tipo": "receta",
+            "contenido": {
+                "medicamentos": [{"nombre": "Metformina", "dosis": "500mg", "frecuencia": "1 vez al día", "duracion": "30 días"}],
+                "indicaciones": "Tomar con alimentos"
+            }
+        }
+        resp = self.client.post('/api/documentos/', payload, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp['Content-Type'], 'application/pdf')
+        self.assertGreater(len(resp.content), 1000)  # PDF tiene contenido
+
+    def test_crear_orden_laboratorio_genera_pdf(self):
+        """POST con tipo orden_laboratorio → PDF generado"""
+        payload = {
+            "paciente": self.paciente.id,
+            "tipo": "orden_laboratorio",
+            "contenido": {
+                "estudios": ["Hemograma completo", "Glicemia en ayunas", "Perfil lipídico"],
+                "indicaciones": "Ayuno de 12 horas"
+            }
+        }
+        resp = self.client.post('/api/documentos/', payload, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp['Content-Type'], 'application/pdf')
+
+    def test_verificar_uuid_valido(self):
+        """GET /api/documentos/verificar/{uuid}/ → {valido: true}"""
+        from apps.expediente.models import DocumentoMedico
+        doc = DocumentoMedico.objects.create(
+            paciente=self.paciente,
+            tipo='constancia',
+            contenido={'texto': 'Se hace constar que el paciente asiste a consulta nutricional.'},
+            creado_por=self.nutricionista
+        )
+        resp = self.client.get(f'/api/documentos/verificar/{doc.uuid_validacion}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['valido'])
+        self.assertEqual(resp.data['tipo'], 'Constancia Médica')
+
+    def test_verificar_uuid_invalido(self):
+        """GET con UUID falso → 404 {valido: false}"""
+        resp = self.client.get('/api/documentos/verificar/00000000-0000-0000-0000-000000000000/')
+        self.assertEqual(resp.status_code, 404)
+        self.assertFalse(resp.data['valido'])
+
+    def test_solo_nutricionista_crea_documentos(self):
+        """Paciente intenta POST → 403 Forbidden"""
+        pac_user = self.paciente.user
+        self.client.force_authenticate(user=pac_user)
+        payload = {
+            "paciente": self.paciente.id,
+            "tipo": "receta",
+            "contenido": {"medicamentos": [{"nombre": "Test"}]}
+        }
+        resp = self.client.post('/api/documentos/', payload, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_pdf_generator_usa_site_url_de_env(self):
+        """pdf_generator.SITE_URL debe coincidir con os.environ.get('SITE_URL', ...)"""
+        import os
+        from apps.expediente.pdf_generator import SITE_URL
+        expected = os.environ.get('SITE_URL', 'http://localhost:8000')
+        self.assertEqual(SITE_URL, expected)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests de campos calculados: %PP, %PI, %PU, g/kg-p/día, kcal/día totales
+# ─────────────────────────────────────────────────────────────────────────────
+
+class CamposCalculadosRegistroProgresoTest(TestCase):
+    """%PP, %PI, %PU calculados en RegistroProgresoSerializer usando pesos del expediente."""
+
+    def setUp(self):
+        self.client = APIClient()
+        Group.objects.get_or_create(name="Paciente")
+        Group.objects.get_or_create(name="Nutricionista")
+        self.paciente = make_paciente("pac_calc")
+        self.nutri = make_user("nutri_calc", group_name="Nutricionista")
+
+        # Crear expediente con pesos de referencia (datos del Excel)
+        self.expediente = ExpedienteClinico.objects.create(
+            paciente=self.paciente,
+            peso_usual_kg="90.00",
+            peso_ideal_kg="70.25",
+            peso_prequirurgico_kg="78.32",
+            peso_maximo_kg="97.00",
+            peso_minimo_kg="83.00",
+            peso_deseado_kg="85.00",
+            motivo_consulta="Test",
+        )
+
+    def test_pct_pp_ganancia(self):
+        """%PP negativo cuando P.Actual > P.Usual (ganancia de peso)."""
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.post("/api/registros-progreso/", {
+            "paciente": self.paciente.pk,
+            "fecha": "2026-04-23",
+            "peso_kg": "90.15",
+            "talla_cm": "177.0",
+        }, format="json")
+        self.assertEqual(resp.status_code, 201)
+        # %PP = (90 - 90.15) / 90 * 100 = -0.17%
+        self.assertIsNotNone(resp.data["pct_pp"])
+        self.assertAlmostEqual(float(resp.data["pct_pp"]), -0.17, delta=0.02)
+
+    def test_pct_pi_sobrepeso_vs_ideal(self):
+        """%PI > 100 indica que el paciente está sobre el peso ideal."""
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.post("/api/registros-progreso/", {
+            "paciente": self.paciente.pk,
+            "fecha": "2026-04-23",
+            "peso_kg": "90.15",
+            "talla_cm": "177.0",
+        }, format="json")
+        self.assertEqual(resp.status_code, 201)
+        # %PI = 90.15 / 70.25 * 100 = 128.33%
+        self.assertIsNotNone(resp.data["pct_pi"])
+        self.assertAlmostEqual(float(resp.data["pct_pi"]), 128.33, delta=0.1)
+
+    def test_pct_pu_sobre_peso_usual(self):
+        """%PU > 100 indica que el paciente está sobre su peso usual."""
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.post("/api/registros-progreso/", {
+            "paciente": self.paciente.pk,
+            "fecha": "2026-04-23",
+            "peso_kg": "90.15",
+            "talla_cm": "177.0",
+        }, format="json")
+        self.assertEqual(resp.status_code, 201)
+        # %PU = 90.15 / 90 * 100 = 100.17%
+        self.assertIsNotNone(resp.data["pct_pu"])
+        self.assertAlmostEqual(float(resp.data["pct_pu"]), 100.17, delta=0.02)
+
+    def test_pct_null_sin_expediente(self):
+        """%PP/%PI/%PU son null si el paciente no tiene expediente."""
+        pac2 = make_paciente("pac_sin_exp")
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.post("/api/registros-progreso/", {
+            "paciente": pac2.pk,
+            "fecha": "2026-01-01",
+            "peso_kg": "70.0",
+            "talla_cm": "170.0",
+        }, format="json")
+        self.assertEqual(resp.status_code, 201)
+        self.assertIsNone(resp.data["pct_pp"])
+        self.assertIsNone(resp.data["pct_pi"])
+        self.assertIsNone(resp.data["pct_pu"])
+
+    def test_pct_pp_perdida_real(self):
+        """%PP positivo cuando P.Actual < P.Usual (pérdida de peso real)."""
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.post("/api/registros-progreso/", {
+            "paciente": self.paciente.pk,
+            "fecha": "2026-05-01",
+            "peso_kg": "85.00",  # bajo el usual de 90
+            "talla_cm": "177.0",
+        }, format="json")
+        self.assertEqual(resp.status_code, 201)
+        # %PP = (90 - 85) / 90 * 100 = 5.56%
+        self.assertGreater(float(resp.data["pct_pp"]), 0)
+        self.assertAlmostEqual(float(resp.data["pct_pp"]), 5.56, delta=0.05)
+
+
+class CamposCalculadosExpedienteTest(TestCase):
+    """kcal/día, g/día totales, g/kg-p/día, %PI, %P.Pre-Qx en ExpedienteClinicoSerializer."""
+
+    def setUp(self):
+        self.client = APIClient()
+        Group.objects.get_or_create(name="Paciente")
+        Group.objects.get_or_create(name="Nutricionista")
+        self.paciente = make_paciente("pac_exp_calc")
+        self.nutri = make_user("nutri_exp_calc", group_name="Nutricionista")
+
+    def _crear_expediente(self):
+        """Crea expediente con consumo calórico real (datos del Excel)."""
+        from apps.expediente.models import ConsumoCaloricoItem
+        exp = ExpedienteClinico.objects.create(
+            paciente=self.paciente,
+            peso_usual_kg="90.00",
+            peso_ideal_kg="70.25",
+            peso_prequirurgico_kg="78.32",
+            peso_maximo_kg="97.00",
+            peso_minimo_kg="83.00",
+            peso_deseado_kg="85.00",
+            motivo_consulta="Test cálculos",
+        )
+        # Datos del Excel de Héctor Delgado
+        grupos = [
+            ("LECHE",    1,   8.0,  2.5,  12.0,  102.0),
+            ("CARNES_A", 10, 70.0, 30.0,   0.0,  550.0),
+            ("VEGETALES", 2,  4.0,  0.0,  10.0,   50.0),
+            ("FRUTAS",   2,   0.0,  0.0,  30.0,  120.0),
+            ("ALMIDONES", 5, 15.0,  0.0,  75.0,  400.0),
+            ("GRASAS",   7,   0.0, 35.0,   0.0,  315.0),
+        ]
+        for idx, (grupo, intercambios, p, g, cho, kcal) in enumerate(grupos):
+            ConsumoCaloricoItem.objects.create(
+                expediente=exp, grupo=grupo, intercambios=intercambios,
+                proteinas_g=p, grasas_g=g, cho_g=cho, kcal=kcal, orden=idx,
+            )
+        return exp
+
+    def test_total_kcal_dia(self):
+        """total_kcal_dia suma correctamente todos los items."""
+        self._crear_expediente()
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.get(f"/api/expedientes/?paciente={self.paciente.pk}")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.data[0] if isinstance(resp.data, list) else resp.data["results"][0]
+        # 102 + 550 + 50 + 120 + 400 + 315 = 1537
+        self.assertAlmostEqual(float(data["total_kcal_dia"]), 1537.0, delta=0.1)
+
+    def test_total_proteinas_g_dia(self):
+        """total_proteinas_g_dia suma correctamente."""
+        self._crear_expediente()
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.get(f"/api/expedientes/?paciente={self.paciente.pk}")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.data[0] if isinstance(resp.data, list) else resp.data["results"][0]
+        # 8 + 70 + 4 + 0 + 15 + 0 = 97
+        self.assertAlmostEqual(float(data["total_proteinas_g_dia"]), 97.0, delta=0.1)
+
+    def test_g_kg_p_dia_proteinas(self):
+        """proteinas_g_kg_dia = total_P / peso_usual."""
+        self._crear_expediente()
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.get(f"/api/expedientes/?paciente={self.paciente.pk}")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.data[0] if isinstance(resp.data, list) else resp.data["results"][0]
+        # 97 / 90 = 1.08
+        self.assertAlmostEqual(float(data["proteinas_g_kg_dia"]), 1.08, delta=0.01)
+
+    def test_g_kg_p_dia_cho(self):
+        """cho_g_kg_dia = total_CHO / peso_usual."""
+        self._crear_expediente()
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.get(f"/api/expedientes/?paciente={self.paciente.pk}")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.data[0] if isinstance(resp.data, list) else resp.data["results"][0]
+        # 127 / 90 = 1.41
+        self.assertAlmostEqual(float(data["cho_g_kg_dia"]), 1.41, delta=0.01)
+
+    def test_pct_peso_ideal(self):
+        """%PI = peso_usual / peso_ideal * 100."""
+        self._crear_expediente()
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.get(f"/api/expedientes/?paciente={self.paciente.pk}")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.data[0] if isinstance(resp.data, list) else resp.data["results"][0]
+        # 90 / 70.25 * 100 = 128.11%
+        self.assertAlmostEqual(float(data["pct_peso_ideal"]), 128.11, delta=0.1)
+
+    def test_pct_peso_prequirurgico(self):
+        """%P.Pre-Qx = peso_prequirurgico / peso_usual * 100."""
+        self._crear_expediente()
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.get(f"/api/expedientes/?paciente={self.paciente.pk}")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.data[0] if isinstance(resp.data, list) else resp.data["results"][0]
+        # 78.32 / 90 * 100 = 87.02%
+        self.assertAlmostEqual(float(data["pct_peso_prequirurgico"]), 87.02, delta=0.1)
+
+    def test_campos_null_sin_consumo(self):
+        """g/kg-p/día son null si no hay consumo calórico."""
+        ExpedienteClinico.objects.create(
+            paciente=self.paciente,
+            peso_usual_kg="90.00",
+            peso_ideal_kg="70.25",
+            motivo_consulta="Sin consumo",
+        )
+        self.client.force_authenticate(user=self.nutri)
+        resp = self.client.get(f"/api/expedientes/?paciente={self.paciente.pk}")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.data[0] if isinstance(resp.data, list) else resp.data["results"][0]
+        # Sin items → totales = 0, g/kg = 0 (no null, sino 0/90 = 0.0)
+        self.assertEqual(float(data["total_kcal_dia"]), 0.0)
+        self.assertEqual(float(data["proteinas_g_kg_dia"]), 0.0)

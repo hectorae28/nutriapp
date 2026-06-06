@@ -7,21 +7,19 @@ from rest_framework.routers import DefaultRouter
 from apps.catalogo.views import AlimentoViewSet, GrupoAlimentoViewSet
 from apps.expediente import views_reportes
 from apps.expediente.views import (
+    DocumentoMedicoViewSet,
     ExamenBioquimicoViewSet,
     ExpedienteClinicoViewSet,
-    NotificacionViewSet,
     RecordatorioAlimentarioViewSet,
     RegistroProgresoViewSet,
 )
 from apps.planes.views import (
     AlimentoTagPlanViewSet,
-    AlimentoTagPlantillaViewSet,
     PlanAlimenticioViewSet,
-    PlantillaAlimenticiaViewSet,
+    PlanExcelExportView,
+    PlanExcelImportView,
     RacionPlanViewSet,
-    RacionPlantillaViewSet,
     TiempoComidaViewSet,
-    TiempoComidaPlantillaViewSet,
     calcular_requerimientos,
 )
 from apps.users.auth_views import (
@@ -29,13 +27,23 @@ from apps.users.auth_views import (
     login_view,
     logout_view,
     me_view,
+    password_reset_confirm_view,
+    password_reset_request_view,
     register_paciente_view,
+    register_secretario_view,
 )
-from apps.users.views import PacienteViewSet, PacienteExcelImportView, PacienteExcelExportView
+from apps.users.views import (
+    ConfiguracionSistemaViewSet,
+    PacienteViewSet,
+    PacienteExcelImportView,
+    PacienteExcelExportView,
+    PacientePdfHistoriaView,
+)
 
 router = DefaultRouter()
 # users
 router.register(r"pacientes", PacienteViewSet, basename="paciente")
+router.register(r"configuracion", ConfiguracionSistemaViewSet, basename="configuracion")
 # catalogo
 router.register(r"grupos-alimento", GrupoAlimentoViewSet, basename="grupo-alimento")
 router.register(r"alimentos", AlimentoViewSet, basename="alimento")
@@ -50,19 +58,15 @@ router.register(
 router.register(
     r"recordatorios", RecordatorioAlimentarioViewSet, basename="recordatorio"
 )
-router.register(r"notificaciones", NotificacionViewSet, basename="notificacion")
+router.register(r"documentos", DocumentoMedicoViewSet, basename="documentos")
 # planes
 router.register(r"planes", PlanAlimenticioViewSet, basename="plan")
 router.register(r"tiempos-comida", TiempoComidaViewSet, basename="tiempo-comida")
 router.register(r"raciones", RacionPlanViewSet, basename="racion")
 # alias for E2E tests
 router.register(r"raciones-plan", RacionPlanViewSet, basename="racion-plan")
-# plantillas
-router.register(r"plantillas-alimenticias", PlantillaAlimenticiaViewSet, basename="plantilla-alimenticia")
-router.register(r"tiempos-comida-plantilla", TiempoComidaPlantillaViewSet, basename="tiempo-comida-plantilla")
-router.register(r"raciones-plantilla", RacionPlantillaViewSet, basename="racion-plantilla")
+# alimento tags
 router.register(r"alimento-tags-plan", AlimentoTagPlanViewSet, basename="alimento-tag-plan")
-router.register(r"alimento-tags-plantilla", AlimentoTagPlantillaViewSet, basename="alimento-tag-plantilla")
 
 
 def serve_react(request, path=""):
@@ -97,11 +101,18 @@ urlpatterns = [
     path("api/auth/logout/", logout_view),
     path("api/auth/me/", me_view),
     path("api/auth/register-paciente/", register_paciente_view),
+    path("api/auth/register-secretario/", register_secretario_view),
+    path("api/auth/password-reset/", password_reset_request_view),
+    path("api/auth/password-reset-confirm/", password_reset_confirm_view),
     # planes
     path("api/calcular-requerimientos/", calcular_requerimientos),
+    path("api/planes/<int:plan_id>/exportar-excel/", PlanExcelExportView.as_view(), name="exportar-plan-excel"),
+    path("api/planes/importar-excel/", PlanExcelImportView.as_view(), name="importar-plan-excel-generic"),
+    path("api/pacientes/<int:paciente_id>/importar-plan-excel/", PlanExcelImportView.as_view(), name="importar-plan-excel"),
     # importación / exportación Excel
     path("api/pacientes/importar-excel/", PacienteExcelImportView.as_view(), name="importar-excel"),
     path("api/pacientes/<int:paciente_id>/exportar-excel/", PacienteExcelExportView.as_view(), name="exportar-excel"),
+    path("api/pacientes/<int:paciente_id>/exportar-pdf/",   PacientePdfHistoriaView.as_view(),  name="exportar-pdf"),
     # reportes
     path("api/metricas-nutricionista/", views_reportes.metricas_nutricionista),
     path("api/reporte-paciente/<int:paciente_id>/", views_reportes.reporte_paciente),

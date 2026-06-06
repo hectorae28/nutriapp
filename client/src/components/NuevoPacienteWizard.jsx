@@ -200,8 +200,7 @@ const step3Schema = yup.object().shape({
   distension_causa: commonStrings,
   aerofagia: yup.boolean(),
   aerofagia_causa: commonStrings,
-  flatulencia: yup.boolean(),
-  flatulencia_causa: commonStrings,
+  flatulencia: commonStrings,
   meteorismo: yup.boolean(),
   meteorismo_causa: commonStrings,
   diarrea: yup.boolean(),
@@ -276,7 +275,7 @@ const defaultValues = {
   cafeinicos_vdia: '', alcohol_tipo: '', tabaquicos_undia: '', sueno_hrdia: '', apetito: '',
   micciones_vdia: '', evacuaciones_vdia: '', actividad_fisica: '',
   dispepsia: false, dispepsia_causa: '', distension: false, distension_causa: '',
-  aerofagia: false, aerofagia_causa: '', flatulencia: false, flatulencia_causa: '',
+  aerofagia: false, aerofagia_causa: '', flatulencia: '',
   meteorismo: false, meteorismo_causa: '', diarrea: false, diarrea_causa: '',
   nauseas: false, nauseas_causa: '', vomitos: false, vomitos_causa: '',
   rgef: false, rgef_causa: '',
@@ -345,7 +344,6 @@ function NuevoPacienteWizard({ onClose, onCreado, defaultData = {} }) {
   const dispepsiaChecked = useWatch({ control, name: 'dispepsia' });
   const distensionChecked = useWatch({ control, name: 'distension' });
   const aerofagiaChecked = useWatch({ control, name: 'aerofagia' });
-  const flatulenciaChecked = useWatch({ control, name: 'flatulencia' });
   const meteorismoChecked = useWatch({ control, name: 'meteorismo' });
   const diarreaChecked = useWatch({ control, name: 'diarrea' });
   const nauseasChecked = useWatch({ control, name: 'nauseas' });
@@ -428,8 +426,7 @@ function NuevoPacienteWizard({ onClose, onCreado, defaultData = {} }) {
         distension_causa: data.distension_causa || '',
         aerofagia: data.aerofagia || false,
         aerofagia_causa: data.aerofagia_causa || '',
-        flatulencia: data.flatulencia || false,
-        flatulencia_causa: data.flatulencia_causa || '',
+        flatulencia: data.flatulencia || '',
         meteorismo: data.meteorismo || false,
         meteorismo_causa: data.meteorismo_causa || '',
         diarrea: data.diarrea || false,
@@ -678,14 +675,11 @@ function NuevoPacienteWizard({ onClose, onCreado, defaultData = {} }) {
                       <Field label="Describe la causa..." name="aerofagia_causa" register={register} errors={errors} type="textarea" />
                     </div>
                   )}
-                  <label style={F.checkboxOption}>
-                    <input type="checkbox" {...register('flatulencia')} className="form-checkbox" /> Flatulencia
-                  </label>
-                  {flatulenciaChecked && (
-                    <div style={{ marginLeft: 24, transition: 'all 0.2s' }}>
-                      <Field label="Describe la causa..." name="flatulencia_causa" register={register} errors={errors} type="textarea" />
-                    </div>
-                  )}
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <Field label="Flatulencia (describe)" name="flatulencia" register={register} errors={errors} fullWidth>
+                      <input type="text" {...register('flatulencia')} style={F.input} placeholder="Ej: Granos, legumbres..." />
+                    </Field>
+                  </div>
                   <label style={F.checkboxOption}>
                     <input type="checkbox" {...register('meteorismo')} className="form-checkbox" /> Meteorismo
                   </label>

@@ -53,20 +53,22 @@ h4 {
 :root,
 [data-theme='light'] {
   color-scheme: light;
-  --bg-primary: #fafaf7;
-  --bg-surface: #ffffff;
-  --bg-surface-2: #f5f3ee;
-  --bg-sidebar: #1b2721;
-  --bg-sidebar-hover: #253530;
-  --text-primary: #1b1b18;
-  --text-secondary: #6b705c;
-  --text-tertiary: #a0a090;
-  --border: #e2ded6;
-  --border-light: #f0ede7;
-  --accent-green: #2d6a4f;
-  --accent-green-light: #d8f3dc;
-  --accent-coral: #d4654a;
-  --accent-coral-light: #fdeae4;
+  /* Domingo Porras — Paleta azul petróleo / navy */
+  --bg-primary: #F4F8FA;
+  --bg-surface: #FFFFFF;
+  --bg-surface-2: #EAF1F5;
+  --bg-sidebar: #143042;
+  --bg-sidebar-hover: #1F4255;
+  --text-primary: #12242E;
+  --text-secondary: #566B77;
+  --text-tertiary: #94A6B0;
+  --border: #DAE4EA;
+  --border-light: #EAF0F4;
+  /* --accent-green mantiene nombre por herencia; valor = azul petróleo */
+  --accent-green: #1E6E92;
+  --accent-green-light: #D6EAF3;
+  --accent-coral: #D4654A;
+  --accent-coral-light: #FDEAE4;
   --shadow-sm: 0 1px 3px rgba(27, 27, 24, 0.04);
   --shadow-md: 0 4px 16px rgba(27, 27, 24, 0.07);
   --shadow-lg: 0 12px 32px rgba(27, 27, 24, 0.1);
@@ -77,20 +79,20 @@ h4 {
 }
 [data-theme='dark'] {
   color-scheme: dark;
-  --bg-primary: #131713;
-  --bg-surface: #1c201c;
-  --bg-surface-2: #252925;
-  --bg-sidebar: #0d100d;
-  --bg-sidebar-hover: #1a1e1a;
-  --text-primary: #edece8;
-  --text-secondary: #8a8e7e;
-  --text-tertiary: #555950;
-  --border: #2e322e;
-  --border-light: #242824;
-  --accent-green: #52b788;
-  --accent-green-light: #1e3a2c;
-  --accent-coral: #f2a65a;
-  --accent-coral-light: #3a2d1e;
+  --bg-primary: #0D1A22;
+  --bg-surface: #142632;
+  --bg-surface-2: #1D3543;
+  --bg-sidebar: #081720;
+  --bg-sidebar-hover: #15303D;
+  --text-primary: #E7EEF2;
+  --text-secondary: #8FA2AD;
+  --text-tertiary: #506570;
+  --border: #274049;
+  --border-light: #1E343E;
+  --accent-green: #46A6CC;
+  --accent-green-light: #12323F;
+  --accent-coral: #F2A65A;
+  --accent-coral-light: #3A2D1E;
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.25);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.35);
@@ -150,7 +152,7 @@ body,
   width: 38px;
   height: 38px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #52b788, #2d6a4f);
+  background: linear-gradient(135deg, #3E9DC4, #143042);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -215,7 +217,7 @@ body,
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  background: linear-gradient(135deg, var(--accent-green), #52b788);
+  background: linear-gradient(135deg, #3E9DC4, #1E6E92);
   color: #fff;
   font-weight: 700;
   font-size: 12px;
@@ -348,7 +350,7 @@ body,
   width: 26px;
   height: 26px;
   border-radius: 8px;
-  background: linear-gradient(135deg, var(--accent-green), #52b788);
+  background: linear-gradient(135deg, #3E9DC4, #1E6E92);
   color: #fff;
   font-weight: 700;
   font-size: 10px;
@@ -1627,8 +1629,8 @@ body,
   font-weight: 600;
 }
 .na-modal-pill.done {
-  background: rgba(82, 183, 136, 0.3);
-  color: #d8f3dc;
+  background: rgba(70, 166, 204, 0.3);
+  color: #D6EAF3;
 }
 .na-modal-close {
   width: 32px;
@@ -1700,7 +1702,7 @@ body,
   background: rgba(255, 255, 255, 0.25);
 }
 .na-modal-tab-count.done {
-  background: rgba(82, 183, 136, 0.3) !important;
+  background: rgba(70, 166, 204, 0.3) !important;
 }
 .na-modal-body {
   flex: 1;
@@ -2105,7 +2107,7 @@ body,
   width: 72px;
   height: 72px;
   border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--accent-green), #52b788);
+  background: linear-gradient(135deg, #3E9DC4, #1E6E92);
   color: #fff;
   font-size: 24px;
   font-weight: 700;
@@ -2242,7 +2244,7 @@ body,
 .na-bmi-bar {
   height: 8px;
   border-radius: 4px;
-  background: linear-gradient(to right, #52b788, #d4a257, #e05555);
+  background: linear-gradient(to right, #3E9DC4, #D4A257, #E05555);
   position: relative;
   overflow: visible;
 }
@@ -2776,7 +2778,7 @@ body,
 
 .na-reporte-header {
   padding: 20px 24px;
-  background: linear-gradient(135deg, #2d6a4f, #52b788);
+  background: linear-gradient(135deg, #3E9DC4, #143042);
   color: #fff;
   display: flex;
   align-items: center;

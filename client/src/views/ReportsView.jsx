@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import TopHeader from '../components/TopHeader';
 import { StatCard, Badge } from '../components/SharedComponents';
-import { TrendingDown, Activity, Target, Calendar } from 'lucide-react';
+import { TrendingDown, Activity, Target, Calendar, AlertCircle } from 'lucide-react';
 import { progresoApi } from '../api/progreso';
 import { planesApi } from '../api/planes';
 import { useAuth } from '../contexts/AuthContext';
@@ -16,12 +17,19 @@ const MOCK_VISIT_NOTES = [];
 const MOCK_MEASUREMENTS = [];
 
 export default function ReportsView() {
-  const { user } = useAuth();
+  const { user, isPaciente } = useAuth();
+  const navigate = useNavigate();
   const [registros, setRegistros] = useState([]);
   const [planActivo, setPlanActivo] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Only load data if user is a Paciente
+    if (!isPaciente) {
+      setLoading(false);
+      return;
+    }
+
     Promise.all([progresoApi.registros().catch(() => []), planesApi.miPlanActivo().catch(() => [])])
       .then(([regs, planes]) => {
         if (Array.isArray(regs)) setRegistros(regs);
@@ -29,7 +37,7 @@ export default function ReportsView() {
         if (plan?.id) setPlanActivo(plan);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [isPaciente]);
 
   // Construir datos del gráfico desde registros reales o mock como fallback
   const weightData =
@@ -95,6 +103,83 @@ export default function ReportsView() {
           }}
         >
           <span style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>Cargando datos…</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Guard: non-patient roles get a message
+  if (!isPaciente) {
+    return (
+      <div className="na-reports-view">
+        <TopHeader title="Reportes" subtitle="Vista de progreso del paciente" />
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            minHeight: 400,
+            gap: 20,
+            padding: '0 20px',
+          }}
+        >
+          <div
+            style={{
+              width: 64,
+              height: 64,
+              borderRadius: '50%',
+              background: 'color-mix(in oklch, #D4A257 10%, var(--bg-surface) 90%)',
+              border: '1px solid color-mix(in oklch, #D4A257 25%, var(--border) 75%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <AlertCircle size={32} style={{ color: '#D4A257' }} />
+          </div>
+          <div style={{ textAlign: 'center', maxWidth: 480 }}>
+            <h3
+              style={{
+                fontSize: 18,
+                fontWeight: 700,
+                color: 'var(--text-primary)',
+                marginBottom: 8,
+              }}
+            >
+              Reportes exclusivos para pacientes
+            </h3>
+            <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              Los reportes de progreso son exclusivos para pacientes. Como profesional de la salud, puedes consultar el dashboard para ver estadísticas generales del consultorio y métricas de tus pacientes.
+            </p>
+          </div>
+          <button
+            onClick={() => navigate('/dashboard')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'white',
+              background: 'var(--accent-green)',
+              border: 'none',
+              borderRadius: 'var(--radius-md)',
+              padding: '10px 20px',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-1px)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = 'none';
+            }}
+          >
+            Ir al Dashboard
+          </button>
         </div>
       </div>
     );

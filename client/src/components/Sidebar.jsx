@@ -1,10 +1,10 @@
 import { NavLink } from 'react-router-dom';
-import { Calendar, LayoutGrid, BarChart2, User, Users, Sun, Moon, Leaf, Home, LogOut, LayoutTemplate } from 'lucide-react';
+import { Calendar, LayoutGrid, BarChart2, User, Users, Sun, Moon, Leaf, Home, LogOut } from 'lucide-react';
 import { useTheme, useIsMobile } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 
 export const NAV_ITEMS_BASE = [
-  { path: '/planner', label: 'Planificador', icon: Calendar },
+  { path: '/planner', label: 'Plan Alimenticio', icon: Calendar },
   { path: '/tablas', label: 'Tablas', icon: LayoutGrid },
   { path: '/reportes', label: 'Reportes', icon: BarChart2 },
   { path: '/perfil', label: 'Paciente', icon: User },
@@ -15,18 +15,29 @@ export const NAV_ITEMS = NAV_ITEMS_BASE;
 export default function Sidebar() {
   const { dark, toggle } = useTheme();
   const isMobile = useIsMobile();
-  const { user, groups, isNutricionista, isAdmin, logout } = useAuth();
+  const { user, groups, isNutricionista, isAdmin, isSecretario, logout } = useAuth();
 
   if (isMobile) return null;
 
-  const navItems = isNutricionista || isAdmin
-    ? [
-        { path: '/dashboard', label: 'Dashboard', icon: Home },
-        { path: '/pacientes', label: 'Pacientes', icon: Users },
-        { path: '/plantillas', label: 'Plantillas', icon: LayoutTemplate },
-        ...NAV_ITEMS_BASE,
-      ]
-    : NAV_ITEMS_BASE;
+  const navItems = (() => {
+    if (isNutricionista || isAdmin) return [
+      { path: '/dashboard', label: 'Dashboard', icon: Home },
+      { path: '/pacientes', label: 'Pacientes', icon: Users },
+      { path: '/planner', label: 'Plan Alimenticio', icon: Calendar },
+      { path: '/tablas', label: 'Tablas', icon: LayoutGrid },
+      { path: '/perfil', label: 'Perfil', icon: User },
+    ];
+    if (isSecretario) return [
+      { path: '/pacientes', label: 'Pacientes', icon: Users },
+      { path: '/perfil', label: 'Perfil', icon: User },
+    ];
+    // Paciente
+    return [
+      { path: '/planner', label: 'Mi Plan', icon: Calendar },
+      { path: '/reportes', label: 'Mi Progreso', icon: BarChart2 },
+      { path: '/perfil', label: 'Perfil', icon: User },
+    ];
+  })();
 
   const nombreCompleto = user
     ? `${user.first_name ?? ''} ${user.last_name ?? ''}`.trim() || user.username

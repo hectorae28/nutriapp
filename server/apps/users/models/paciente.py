@@ -29,6 +29,7 @@ class Paciente(models.Model):
     referido_por = models.CharField(max_length=100, blank=True)
     historia_nro = models.CharField(max_length=50, blank=True)
     consultorio = models.CharField(max_length=100, blank=True)
+    proxima_cita = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

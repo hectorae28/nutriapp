@@ -48,7 +48,7 @@ const TABS = [
 
 export default function ProfileView() {
   const [tab, setTab] = useState('patient');
-  const { user, groups, logout } = useAuth();
+  const { user, groups, logout, isNutricionista, isAdmin, isSecretario, isPaciente } = useAuth();
   const [paciente, setPaciente] = useState(null);
   const [expediente, setExpediente] = useState(null);
   const [examenes, setExamenes] = useState([]);
@@ -56,6 +56,12 @@ export default function ProfileView() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Only load patient data if user is a Paciente
+    if (!isPaciente) {
+      setLoading(false);
+      return;
+    }
+
     api
       .get('/pacientes/')
       .then(async (data) => {
@@ -74,7 +80,7 @@ export default function ProfileView() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [isPaciente]);
 
   const nombreCompleto = user
     ? `${user.first_name ?? ''} ${user.last_name ?? ''}`.trim() || user.username
@@ -86,10 +92,23 @@ export default function ProfileView() {
     ? [...registrosProgreso].sort((a, b) => new Date(b.fecha) - new Date(a.fecha))[0]
     : null;
 
+  // Títulos según rol
+  const tituloView = isNutricionista || isAdmin 
+    ? 'Mi Perfil Profesional' 
+    : isSecretario 
+      ? 'Mi Perfil' 
+      : 'Mi Perfil';
+  
+  const subtituloView = isNutricionista || isAdmin
+    ? 'Datos profesionales y configuración'
+    : isSecretario
+      ? 'Información personal y configuración'
+      : 'Información personal y seguimiento nutricional';
+
   if (loading) {
     return (
       <div className="na-profile-view">
-        <TopHeader title="Perfil del Paciente" subtitle="Información personal y seguimiento nutricional" />
+        <TopHeader title={tituloView} subtitle={subtituloView} />
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 300 }}>
           <span style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>Cargando datos…</span>
         </div>
@@ -97,10 +116,10 @@ export default function ProfileView() {
     );
   }
 
-  if (!paciente) {
+  if (!paciente && isPaciente) {
     return (
       <div className="na-profile-view">
-        <TopHeader title="Perfil del Paciente" subtitle="Información personal y seguimiento nutricional" />
+        <TopHeader title={tituloView} subtitle={subtituloView} />
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 300 }}>
           <span style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>No se encontró perfil de paciente.</span>
         </div>
@@ -113,11 +132,130 @@ export default function ProfileView() {
   const talla = ultimoProgreso ? parseFloat(ultimoProgreso.talla_cm) : null;
   const imc = ultimoProgreso?.imc ? parseFloat(ultimoProgreso.imc).toFixed(1) : null;
 
+  // Si es Nutricionista/Admin/Secretario, mostrar perfil profesional simple
+  if (isNutricionista || isAdmin || isSecretario) {
+    const initials = nombreCompleto
+      .split(' ')
+      .filter(Boolean)
+      .map((n) => n[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase();
+
+    const memberSince = user?.date_joined 
+      ? new Date(user.date_joined).toLocaleDateString('es-VE', { month: 'long', year: 'numeric' })
+      : null;
+
+    return (
+      <div className="na-profile-view">
+        <TopHeader title={tituloView} subtitle={subtituloView} />
+        <div className="na-profile-content">
+          {/* Hero card */}
+          <div className="na-profile-hero">
+            <div className="na-profile-avatar">
+              <span>{initials}</span>
+            </div>
+            <div className="na-profile-hero-info">
+              <h2 className="na-profile-name">{nombreCompleto}</h2>
+              <p className="na-profile-objective">{user?.email || '—'}</p>
+              <div className="na-profile-tags" style={{ marginTop: 10 }}>
+                <Badge color="var(--accent-green)">{rol}</Badge>
+              </div>
+            </div>
+            <div
+              style={{
+                marginLeft: 'auto',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-end',
+                gap: 4,
+                flexShrink: 0,
+              }}
+            >
+              <button
+                onClick={logout}
+                style={{
+                  marginTop: 10,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: '#E05555',
+                  background: 'color-mix(in oklch, #E05555 10%, var(--bg-surface) 90%)',
+                  border: '1px solid color-mix(in oklch, #E05555 25%, var(--border) 75%)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '5px 10px',
+                  cursor: 'pointer',
+                }}
+              >
+                <LogOut size={13} />
+                Cerrar sesión
+              </button>
+            </div>
+          </div>
+          
+          {/* Account info card */}
+          <div className="na-psection">
+            <div className="na-psection-title">
+              <div className="na-psection-icon">
+                <User size={15} />
+              </div>
+              Información de cuenta
+            </div>
+            <InfoRow icon={User} label="Nombre de usuario" value={user?.username || '—'} />
+            <InfoRow icon={Mail} label="Correo electrónico" value={user?.email || '—'} />
+            {memberSince && <InfoRow icon={Calendar} label="Miembro desde" value={memberSince} />}
+          </div>
+
+          {/* Actions card */}
+          <div style={{ 
+            background: 'var(--bg-surface)', 
+            border: '1px solid var(--border-light)', 
+            borderRadius: 'var(--radius-lg)',
+            padding: 20,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}>
+            <button
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                fontSize: 13,
+                fontWeight: 600,
+                color: 'var(--text-primary)',
+                background: 'var(--bg-base)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-md)',
+                padding: '10px 16px',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-surface)';
+                e.currentTarget.style.borderColor = 'var(--accent-green)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'var(--bg-base)';
+                e.currentTarget.style.borderColor = 'var(--border)';
+              }}
+            >
+              Cambiar contraseña
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="na-profile-view">
       <TopHeader
-        title="Perfil del Paciente"
-        subtitle="Información personal y seguimiento nutricional"
+        title={tituloView}
+        subtitle={subtituloView}
       />
 
       <div className="na-profile-content">

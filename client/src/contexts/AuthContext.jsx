@@ -43,11 +43,12 @@ export function AuthProvider({ children }) {
 
   const isNutricionista = groups.includes('Nutricionista');
   const isPaciente = groups.includes('Paciente');
+  const isSecretario = groups.includes('Secretario');
   const isAdmin = groups.includes('Admin') || user?.is_superuser === true;
 
   return (
     <AuthContext.Provider
-      value={{ user, groups, loading, login, logout, isNutricionista, isPaciente, isAdmin }}
+      value={{ user, groups, loading, login, logout, isNutricionista, isPaciente, isSecretario, isAdmin }}
     >
       {children}
     </AuthContext.Provider>

@@ -16,7 +16,6 @@ Modos
                 • Registros de progreso
                 • Planes alimenticios (con tiempos de comida y raciones)
                 • Recordatorios alimentarios
-                • Notificaciones
 
 Flags adicionales
 -----------------
@@ -48,7 +47,6 @@ from apps.expediente.models import (
     RecordatorioAlimentario,
     EntradaRecordatorio,
     RegistroProgreso,
-    Notificacion,
 )
 from apps.planes.models import PlanAlimenticio, RacionPlan, TiempoComida
 from apps.users.models import Paciente
@@ -366,6 +364,13 @@ def _rand_decimal(lo, hi, decimals=2):
     return Decimal(str(round(val, decimals)))
 
 
+def _rand_medio(lo, hi):
+    """Genera valor aleatorio redondeado a entero o medio (0.5)."""
+    val = random.uniform(lo, hi)
+    rounded = round(val * 2) / 2
+    return Decimal(str(rounded))
+
+
 def _rand_date(years_ago_min=0, years_ago_max=2):
     days = random.randint(years_ago_min * 365, years_ago_max * 365)
     return date.today() - timedelta(days=days)
@@ -455,7 +460,6 @@ class Command(BaseCommand):
         ExamenBioquimico.objects.all().delete()
         RegistroProgreso.objects.all().delete()
         ExpedienteClinico.objects.all().delete()
-        Notificacion.objects.all().delete()
         Paciente.objects.all().delete()
         Alimento.objects.all().delete()
         GrupoAlimento.objects.all().delete()
@@ -471,9 +475,11 @@ class Command(BaseCommand):
     def _seed_base(self):
         self.stdout.write("📦  Generando datos base...")
 
-        # Grupo de Django para Nutricionistas
+        # Grupos de Django
         nutricionista_group, _ = Group.objects.get_or_create(name="Nutricionista")
-        self.stdout.write(f"   ✔ Grupo 'Nutricionista' listo.")
+        paciente_group, _ = Group.objects.get_or_create(name="Paciente")
+        secretario_group, _ = Group.objects.get_or_create(name="Secretario")
+        self.stdout.write(f"   ✔ Grupos 'Nutricionista', 'Paciente' y 'Secretario' listos.")
 
         # Usuario admin
         if not User.objects.filter(username="admin").exists():
@@ -501,6 +507,42 @@ class Command(BaseCommand):
             self.stdout.write("   ✔ Usuario 'nutricionista' creado (pass: nutri1234).")
         else:
             self.stdout.write("   · Usuario 'nutricionista' ya existe, se omite.")
+
+        # Usuario secretario demo
+        if not User.objects.filter(username="secretaria").exists():
+            secre = User.objects.create_user(
+                username="secretaria",
+                password="secretaria123",
+                email="secretaria@nutriapp.local",
+                first_name="Secretaria",
+                last_name="Demo",
+            )
+            secre.groups.add(secretario_group)
+            self.stdout.write("   ✔ Usuario 'secretaria' creado (pass: secretaria123).")
+        else:
+            self.stdout.write("   · Usuario 'secretaria' ya existe, se omite.")
+
+        # Usuario paciente demo
+        if not User.objects.filter(username="paciente_demo").exists():
+            pac_user = User.objects.create_user(
+                username="paciente_demo",
+                password="paciente123",
+                email="paciente@nutriapp.local",
+                first_name="Paciente",
+                last_name="Demo",
+            )
+            pac_user.groups.add(paciente_group)
+            Paciente.objects.get_or_create(
+                user=pac_user,
+                defaults={
+                    "cedula": "00000001",
+                    "sexo": "F",
+                    "fecha_nacimiento": "1990-01-01",
+                },
+            )
+            self.stdout.write("   ✔ Usuario 'paciente_demo' creado (pass: paciente123).")
+        else:
+            self.stdout.write("   · Usuario 'paciente_demo' ya existe, se omite.")
 
         # Catálogo: Grupos de alimentos + Alimentos
         grupos_creados = 0
@@ -538,6 +580,7 @@ class Command(BaseCommand):
         self.stdout.write(f"\n🏥  Generando {n_pacientes} pacientes con datos completos...")
 
         nutri_group = Group.objects.get(name="Nutricionista")
+        paciente_group, _ = Group.objects.get_or_create(name="Paciente")
         grupos = list(GrupoAlimento.objects.all())
         nutri_user = User.objects.filter(groups=nutri_group).first()
 
@@ -574,6 +617,7 @@ class Command(BaseCommand):
                 first_name=nombre,
                 last_name=apellido_completo,
             )
+            user.groups.add(paciente_group)
 
             # Paciente
             paciente = Paciente.objects.create(
@@ -638,7 +682,7 @@ class Command(BaseCommand):
                     ConsumoCaloricoItem.objects.create(
                         expediente=expediente,
                         grupo=grupo_key,
-                        intercambios=_rand_decimal(0.5, 4),
+                        intercambios=_rand_medio(0.5, 4),
                         proteinas_g=_rand_decimal(0, 20),
                         grasas_g=_rand_decimal(0, 15),
                         cho_g=_rand_decimal(0, 30),
@@ -718,7 +762,7 @@ class Command(BaseCommand):
                     RacionPlan.objects.create(
                         tiempo_comida=tc,
                         grupo=grupo,
-                        cantidad=_rand_decimal(0.5, 3),
+                        cantidad=_rand_medio(0.5, 3),
                     )
 
             # Recordatorio alimentario
@@ -740,16 +784,6 @@ class Command(BaseCommand):
                         "Yogur con avena y frutas",
                         "Sopa de vegetales con pasta integral",
                     ]),
-                )
-
-            # Notificación al nutricionista
-            if nutri_user:
-                Notificacion.objects.create(
-                    destinatario=nutri_user,
-                    tipo="nuevo_paciente",
-                    titulo=f"Nuevo paciente registrado",
-                    mensaje=f"El paciente {user.get_full_name()} fue registrado en el sistema.",
-                    paciente=paciente,
                 )
 
             self.stdout.write(f"   ✔ [{i+1}/{n_pacientes}] {user.get_full_name()} ({username})")

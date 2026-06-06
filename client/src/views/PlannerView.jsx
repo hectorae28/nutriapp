@@ -14,8 +14,10 @@ import {
 } from 'lucide-react';
 import TopHeader from '../components/TopHeader';
 import { EmptyState } from '../components/SharedComponents';
+import { useAuth } from '../contexts/AuthContext';
+import { useCatalogoStore } from '../stores';
 import { planesApi } from '../api/planes';
-import { catalogoApi } from '../api/catalogo';
+import { pacientesApi } from '../api/pacientes';
 import { createGrupoStyleMap, getGrupoStyle } from '../constants/grupoStyles';
 
 let _nextMealId = 100;
@@ -39,13 +41,14 @@ function totalSelections(selections) {
 // ─── component ───────────────────────────────────────────────────────────────
 
 export default function PlannerView() {
-  const [grupos, setGrupos] = useState([]);
-  const [alimentos, setAlimentos] = useState([]);
+  const { user, isPaciente } = useAuth();
+  const { grupos, alimentos, fetchCatalogo } = useCatalogoStore();
   const [meals, setMeals] = useState([]);
   const [selections, setSelections] = useState({});
   const [modalState, setModalState] = useState(null); // { meal, slotListId }
   const [planActivo, setPlanActivo] = useState(null);
   const [planLoading, setPlanLoading] = useState(true);
+  const [pacienteData, setPacienteData] = useState(null);
   
   const LIST_META = useMemo(() => {
     const meta = {};
@@ -73,34 +76,36 @@ export default function PlannerView() {
   }, [grupos]);
 
   useEffect(() => {
+    // Cargar catálogo desde Zustand (con cache)
+    fetchCatalogo();
+
     Promise.all([
       planesApi.miPlanActivo().catch(() => null),
-      catalogoApi.grupos().catch(() => []),
-      catalogoApi.alimentos().catch(() => []),
-    ]).then(([plan, gruposData, alimentosData]) => {
+      isPaciente && user?.id ? pacientesApi.get(user.id).catch(() => null) : Promise.resolve(null),
+    ]).then(([plan, paciente]) => {
       if (Array.isArray(plan) && plan.length > 0) setPlanActivo(plan[0]);
       else if (plan && plan.id) setPlanActivo(plan);
       
-      const gruposArr = Array.isArray(gruposData) ? gruposData : [];
-      setGrupos(gruposArr);
-      setAlimentos(Array.isArray(alimentosData) ? alimentosData : []);
-      
-      // Initialize DEFAULT_MEALS from grupos
-      if (gruposArr.length > 0 && meals.length === 0) {
-        const defaultMeals = [
-          {
-            id: 1,
-            name: 'Desayuno',
-            time: '7:00',
-            slots: [{ listId: gruposArr[0]?.id || 1, targetRations: 2 }],
-          },
-        ];
-        setMeals(defaultMeals);
-      }
+      if (paciente) setPacienteData(paciente);
       
       setPlanLoading(false);
     });
-  }, []);
+  }, [isPaciente, user, fetchCatalogo]);
+
+  // Initialize DEFAULT_MEALS when grupos are loaded
+  useEffect(() => {
+    if (!isPaciente && grupos.length > 0 && meals.length === 0) {
+      const defaultMeals = [
+        {
+          id: 1,
+          name: 'Desayuno',
+          time: '7:00',
+          slots: [{ listId: grupos[0]?.id || 1, targetRations: 2 }],
+        },
+      ];
+      setMeals(defaultMeals);
+    }
+  }, [isPaciente, grupos, meals.length]);
 
   const addMeal = () => {
     const id = _nextMealId++;
@@ -224,12 +229,48 @@ export default function PlannerView() {
     </>
   );
 
+  const nombreCompleto = user
+    ? `${user.first_name ?? ''} ${user.last_name ?? ''}`.trim() || user.username
+    : '';
+
   return (
     <div className="npv-root">
       <TopHeader
-        title="Planificador"
-        subtitle="Distribuye los grupos de alimentos por tiempo de comida"
+        title={isPaciente ? `¡Hola, ${nombreCompleto}!` : 'Plan Alimenticio'}
+        subtitle={isPaciente ? 'Tu plan nutricional personalizado' : 'Distribuye los grupos de alimentos por tiempo de comida'}
       />
+
+      {/* Banner de próxima consulta para pacientes */}
+      {isPaciente && pacienteData?.proxima_cita && (
+        <div
+          style={{
+            background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
+            border: '1px solid #86efac',
+            borderRadius: 12,
+            padding: '14px 18px',
+            margin: '0 24px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            boxShadow: '0 2px 8px rgba(22, 163, 74, 0.1)',
+          }}
+        >
+          <Calendar size={20} style={{ color: '#16a34a', flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#15803d', marginBottom: 2 }}>
+              Tu próxima consulta
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#166534' }}>
+              {new Date(pacienteData.proxima_cita).toLocaleDateString('es-ES', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="npv-body">
         {/* ── Sidebar desktop ── */}
@@ -259,27 +300,88 @@ export default function PlannerView() {
 
         {/* ── Área principal: tarjetas de comidas ── */}
         <main className="npv-main">
-          <div className="npv-meals-grid">
-            {meals.map((meal) => (
-              <MealCard
-                key={meal.id}
-                meal={meal}
-                selections={selections[meal.id] || {}}
-                listMeta={LIST_META}
-                onOpenModal={(slotListId) => setModalState({ meal, slotListId })}
-                onRemoveMeal={removeMeal}
-                onUpdateMeal={updateMeal}
-                onRemoveItem={(listId, i) => removeItem(meal.id, listId, i)}
-                onClearMeal={() => clearMeal(meal.id)}
-              />
-            ))}
-            <button className="npv-add-meal" onClick={addMeal}>
-              <div className="npv-add-meal-inner">
-                <Plus size={22} />
-                <span>Agregar comida</span>
-              </div>
-            </button>
-          </div>
+          {isPaciente && !planActivo && !planLoading ? (
+            <EmptyState 
+              title="No tienes un plan alimenticio asignado aún" 
+              sub="Consulta con tu nutricionista para que te asigne un plan personalizado."
+            />
+          ) : isPaciente && planActivo ? (
+            <div className="npv-meals-grid">
+              {/* Mostrar plan en modo solo lectura para paciente */}
+              {planActivo.tiempos_comida?.length > 0 ? (
+                planActivo.tiempos_comida.slice().sort((a, b) => a.orden - b.orden).map((tc) => (
+                  <div key={tc.id} className="npv-meal-card">
+                    <div className="npv-meal-top">
+                      <div className="npv-meal-left">
+                        <div className="npv-meal-ring" style={{ '--pct': 100, '--rc': 'var(--accent-green)' }}>
+                          <svg viewBox="0 0 36 36" className="npv-ring-svg">
+                            <circle cx="18" cy="18" r="15" fill="none" stroke="var(--border)" strokeWidth="3" />
+                            <circle
+                              cx="18" cy="18" r="15" fill="none"
+                              stroke="var(--rc)" strokeWidth="3"
+                              strokeDasharray="94.2 94.2"
+                              strokeLinecap="round"
+                              transform="rotate(-90 18 18)"
+                            />
+                          </svg>
+                          <span className="npv-ring-pct">✓</span>
+                        </div>
+                        <div className="npv-meal-info">
+                          <span className="npv-meal-name">{tc.nombre}</span>
+                          <div className="npv-meal-meta">
+                            <Clock size={11} />
+                            <span className="npv-time-input">{tc.hora || '--:--'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="npv-meal-body">
+                      {tc.raciones?.map((r) => {
+                        const meta = LIST_META[r.grupo] || {};
+                        return (
+                          <div key={r.id} className="npv-slot done" style={{ '--sc': meta.color, '--sl': meta.light }}>
+                            <div className="npv-slot-row">
+                              <span className="npv-slot-icon">{meta.icon}</span>
+                              <span className="npv-slot-name">{r.grupo_nombre}</span>
+                              <span className="npv-step-val">{r.cantidad} raciones</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <EmptyState 
+                  title="Tu plan no tiene tiempos de comida definidos" 
+                  sub="Contacta a tu nutricionista para más información."
+                />
+              )}
+            </div>
+          ) : (
+            <div className="npv-meals-grid">
+              {meals.map((meal) => (
+                <MealCard
+                  key={meal.id}
+                  meal={meal}
+                  selections={selections[meal.id] || {}}
+                  listMeta={LIST_META}
+                  onOpenModal={(slotListId) => setModalState({ meal, slotListId })}
+                  onRemoveMeal={removeMeal}
+                  onUpdateMeal={updateMeal}
+                  onRemoveItem={(listId, i) => removeItem(meal.id, listId, i)}
+                  onClearMeal={() => clearMeal(meal.id)}
+                  readOnly={false}
+                />
+              ))}
+              <button className="npv-add-meal" onClick={addMeal}>
+                <div className="npv-add-meal-inner">
+                  <Plus size={22} />
+                  <span>Agregar comida</span>
+                </div>
+              </button>
+            </div>
+          )}
         </main>
       </div>
 
